@@ -9,50 +9,45 @@ DIAGPAT = re.compile(
     "^Dialogue: 0,([\d:\.]{10}),([\d:\.]{10}),([^,]+)(?=.*)"
 )
 
-class Reader:
+class AudioClip:
+    def __init__(
+        self, filename: str, offset=None, duration=None
+    ) -> None:
+        self.load_data(filename, offset=offset, duration=duration)
+
+    def load_data(self, filename: str, offset: int, duration: int):
+        """Read .m4a file"""
+        data, rate = audiofile.read(
+            filename,
+            offset=offset,
+            duration=duration
+        )
+
+        self.data = data 
+        self.rate = rate
+        self.shape = data.shape 
+
+    def __str__(self) -> str:
+        return f"""
+        Data has shape {self.data.shape} sampled at {self.rate} Hz
+        """
+
+class ASSReader:
     """
     Class to load an audio file and parse its associated subtitles
     """
     def __init__(
-        self, 
-        datadir: Path=None, 
-        suffix: str="ichinose_tamaki_taidan",
-        offset=None, duration=None,
+        self, filename: str, 
         dialog_pattern: Union[str, re.Pattern]=DIAGPAT,
     ) -> None:
 
         self.dialog_pattern = dialog_pattern
-        self.get_data_files(
-            datadir, suffix, 
-            offset=offset, duration=duration
-        )
+        self.read_ass(filename)
     
-    def get_data_files(
-        self, 
-        datadir: Path, suffix: str, 
-        offset=None, duration=None
-    ) -> tuple[list[float], int]:
-        
-        if datadir is None:
-            datadir = Path.cwd() / 'data'
-        if suffix is None:
-            raise ValueError("No suffix given")
-        
-        # read .m4a 
-        data, rate = audiofile.read(
-            datadir / f"{suffix}.m4a",
-            offset=98,
-            duration=3737
-        )
-
-        # read subtitles 
-        with open(
-            datadir / f"{suffix}.ass", 'r', encoding='utf-8'
-        ) as io:
+    def read_ass(self, filename: str) -> None:
+        with open(filename, 'r', encoding='utf-8') as io:
             subs = io.readlines()
 
-        self.data = data 
-        self.rate = rate 
         self.subs = subs 
     
     def get_raw_dialog(self) -> pd.DataFrame:
@@ -167,18 +162,23 @@ class Reader:
         df_ts.reset_index(drop=True, inplace=True)
         return df_ts.set_index(['Speaker', df_ts.index]).sort_index()
 
-    def parse_subs(self) -> pd.DataFrame:
+    def parse_subs(self, Hz: int) -> pd.DataFrame:
         """Extract timestamps from subtitles into dataframe
-
-        Returns:
-            pd.DataFrame: _description_
+        ```python
+                   Start         End  ... End_seconds  End_samples
+        0     0:00:03.48  0:00:05.82  ...        5.82       256662
+        1     0:00:05.82  0:00:07.71  ...        7.71       340011
+        2     0:00:07.71  0:00:08.85  ...        8.85       390285
+        3     0:00:08.85  0:00:10.00  ...       10.00       441000
+        4     0:00:10.00  0:00:14.05  ...       14.05       619605
+        ```
         """
         
         df = self.get_raw_dialog()
         df = self.parse_dialog(df)
 
         df_ts = self.get_sub_times(
-            df, self.rate, self.ts2secs
+            df, Hz, self.ts2secs
         )
         
         self.df_subs = df 
@@ -189,9 +189,19 @@ class Reader:
         return df 
         
     def __str__(self) -> str:
+        
+        if self.df_subs is None or self.df_ts is None:
+            raise AttributeError()
+        
+        n_speakers = self.df_subs['Speaker'].unique().shape[0]
+        n_subs = self.df_subs.shape[0]
+
         return f"""
-        Data has shape {self.data.shape} sampled at {self.rate} Hz
-        {self.df_ts.head()}
+        Subtitles have {n_subs} lines and {n_speakers} speakers:
+        {self.df_subs['Speaker'].value_counts().to_dict()}        
+
+        Start time (s): {self.df_ts['Start_seconds'].min()}
+        End time (s): {self.df_ts['End_seconds'].max()}
         """
     
 class ConsecutiveGrouper:
@@ -286,5 +296,41 @@ class ConsecutiveGrouper:
         grouped = self.aggregate_consecutive(df_, inds, mask, mask_1L, speaker)
         return self.concat_non_consecutive(df_, grouped, mask_1L)
 
-rdr = Reader()
-rdr.parse_subs()
+
+def main(filename_prefix: str, read_clip=True):
+    datadir = Path.cwd() / 'data'
+    fname = str(datadir / filename_prefix)
+    
+    rdr = ASSReader(f"{fname}.ass")
+
+    if read_clip:
+        clip = AudioClip(
+            f"{fname}.m4a", 
+            offset=98,
+            duration=3737
+        )
+        print(clip)
+        rdr.parse_subs(clip.rate)
+    else:
+        rdr.parse_subs(44100)
+
+    print(rdr)
+
+    for speaker in ['Ichinose', 'Tamaki']:        
+        outp = datadir / f'{speaker}_agg-subs.csv'
+
+        if outp.is_file():
+            overwrite = input(f"{outp} exists. Overwrite? [y/n]")
+            if overwrite == 'n': continue 
+
+        df_speaker = ConsecutiveGrouper().\
+            aggregate(rdr.df_ts, speaker)
+
+        df_speaker.to_csv(outp)
+        print(f"File saved at: {outp}")
+
+if __name__ == '__main__':
+    main(
+        filename_prefix="ichinose_tamaki_taidan",
+        read_clip=False 
+    )
