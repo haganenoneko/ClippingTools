@@ -1,3 +1,5 @@
+from multiprocessing.sharedctypes import Value
+from tkinter.tix import InputOnly
 import audiofile 
 import regex as re 
 import numpy as np 
@@ -11,7 +13,7 @@ DIAGPAT = re.compile(
 
 class AudioClip:
     def __init__(
-        self, filename: str, offset=None, duration=None
+        self, filename: str, offset=0, duration=None
     ) -> None:
         self.load_data(filename, offset=offset, duration=duration)
 
@@ -26,6 +28,16 @@ class AudioClip:
         self.data = data 
         self.rate = rate
         self.shape = data.shape 
+    
+    def clip(self, start: int, end: int, unit='samples') -> np.ndarray:
+        if unit in ['sample', 'samples']:
+            return self.data[:, start:end]
+        if unit == 'seconds':
+            start *= self.rate 
+            end *= self.rate 
+            return self.data[:, start:end]
+        else:
+            raise ValueError(f"unit must be `samples` or `seconds`, not {unit}.")
 
     def __str__(self) -> str:
         return f"""
@@ -50,8 +62,9 @@ class ASSReader:
 
         self.subs = subs 
     
-    def get_raw_dialog(self) -> pd.DataFrame:
+    def get_raw_dialog(self, skiprows: int) -> pd.DataFrame:
         """Create dataframe from subtitles
+        Includes all subtitle lines, and matches the line numbering in Aegisub.
         ```python
         >>> df.head()
             0
@@ -66,7 +79,11 @@ class ASSReader:
         for ind, line in enumerate(self.subs):
             if "[Events]" in line: break 
             
-        return pd.DataFrame(self.subs[ind+2:])
+        df_raw = pd.DataFrame(self.subs[ind+skiprows+2:]).\
+            reset_index(drop=True)
+        
+        df_raw.index += skiprows + 1 
+        return df_raw 
 
     @staticmethod
     def parse_line(line: str, pat: re.Pattern) -> list[str]:
@@ -92,19 +109,14 @@ class ASSReader:
         4  0:00:10.00  0:00:14.05    Tamaki
         ```
         """
-        df = df.iloc[:,0].apply(
-            lambda s: pd.Series(
-                self.parse_line(s, self.dialog_pattern)
-            )
-        ).rename(
-            {i : col for i, col in enumerate(["Start", "End", "Speaker"])},
-            axis=1
-        )
-        
-        df = df.drop([0, 1], axis=0).\
-            reset_index(drop=True).\
-            sort_values(by="Start", ascending=True)
+        rename_cols = {i : col for i, col in enumerate(["Start", "End", "Speaker"])}
 
+        df = df.iloc[:,0].apply(lambda s: pd.Series(
+                self.parse_line(s, self.dialog_pattern)
+            )).\
+            rename(rename_cols, axis=1).\
+            sort_values(by="Start", ascending=True)
+        
         return df 
 
     @staticmethod
@@ -141,7 +153,7 @@ class ASSReader:
         return df 
 
     @staticmethod
-    def rename_ts_index_cols(df_ts: pd.DataFrame, dropcols: list[str]) -> pd.DataFrame:
+    def rename_ts_index_cols(df: pd.DataFrame, dropcols: list[str]) -> pd.DataFrame:
         """Rename index and columns of timestamp dataframe
         ```python
         >>> df_ts.head()
@@ -153,16 +165,16 @@ class ASSReader:
                     11  0:00:33.82  0:00:36.39  ...        36.39      1604799
                     12  0:00:36.39  0:00:38.91  ...        38.91      1715930
         """
+        df_ts = df.copy()
         if dropcols:
             df_ts.drop(
                 df_ts.loc[df_ts.Speaker.isin(dropcols), :].index,
                 axis=0, inplace=True
             )
 
-        df_ts.reset_index(drop=True, inplace=True)
         return df_ts.set_index(['Speaker', df_ts.index]).sort_index()
 
-    def parse_subs(self, Hz: int) -> pd.DataFrame:
+    def parse_subs(self, Hz: int, skiprows: int=0) -> pd.DataFrame:
         """Extract timestamps from subtitles into dataframe
         ```python
                    Start         End  ... End_seconds  End_samples
@@ -174,17 +186,14 @@ class ASSReader:
         ```
         """
         
-        df = self.get_raw_dialog()
+        df = self.get_raw_dialog(skiprows)
         df = self.parse_dialog(df)
-
-        df_ts = self.get_sub_times(
-            df, Hz, self.ts2secs
-        )
+        
+        df_ts = self.get_sub_times(df, Hz, self.ts2secs)        
+        df_ts = self.rename_ts_index_cols(df_ts, ['Default', 'Translator'])
         
         self.df_subs = df 
-        self.df_ts = self.rename_ts_index_cols(
-            df_ts, ['Default', 'Translator']
-        )
+        self.df_ts = df_ts 
 
         return df 
         
@@ -203,7 +212,9 @@ class ASSReader:
         Start time (s): {self.df_ts['Start_seconds'].min()}
         End time (s): {self.df_ts['End_seconds'].max()}
         """
-    
+
+
+
 class ConsecutiveGrouper:
     def __init__(self) -> None: 
         self.idx = pd.IndexSlice
@@ -247,6 +258,7 @@ class ConsecutiveGrouper:
 
     @staticmethod
     def get_true_groups(mask: np.ndarray, mask_1L: np.ndarray) -> list[pd.Index]:
+        """Yield consecutive subtitles"""
         trues = pd.Series(~mask).\
             cumsum().\
             mask(mask).\
@@ -267,10 +279,14 @@ class ConsecutiveGrouper:
     ) -> pd.DataFrame:
         """Aggregate timestamps for subtitles that are consecutive.
         """
+        
         df_dict: dict[str, dict] = {col : {} for col in df_.columns}
+                
         for grp in  self.get_true_groups(mask, mask_1L):
             if grp.shape[0] < 2: continue 
+
             key = inds[grp[0]]
+
             for col in df_dict.keys():
                 if 'Start' in col:
                     df_dict[col][key] = df_.at[(speaker, key), col]
@@ -304,11 +320,7 @@ def main(filename_prefix: str, read_clip=True):
     rdr = ASSReader(f"{fname}.ass")
 
     if read_clip:
-        clip = AudioClip(
-            f"{fname}.m4a", 
-            offset=98,
-            duration=3737
-        )
+        clip = AudioClip(f"{fname}.m4a")
         print(clip)
         rdr.parse_subs(clip.rate)
     else:
@@ -326,8 +338,10 @@ def main(filename_prefix: str, read_clip=True):
         df_speaker = ConsecutiveGrouper().\
             aggregate(rdr.df_ts, speaker)
 
-        df_speaker.to_csv(outp)
-        print(f"File saved at: {outp}")
+        print(df_speaker.head())
+
+        # df_speaker.to_csv(outp)
+        # print(f"File saved at: {outp}")
 
 if __name__ == '__main__':
     main(
