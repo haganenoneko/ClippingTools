@@ -4,7 +4,7 @@ import audiofile
 import regex as re 
 import numpy as np 
 import pandas as pd 
-from typing import Union
+from typing import Any, Union
 from pathlib import Path 
 
 DIAGPAT = re.compile(
@@ -234,84 +234,90 @@ class ConsecutiveGrouper:
         return df.loc[self.idx[speaker, :], :]
 
     @staticmethod
-    def get_consecutive_mask(inds: pd.Int64Index) -> tuple[np.ndarray]:
-        """Get masks whose elements are `True` when consecutive dialog indices differ by 1, i.e. are consecutive in the original file as well.
+    def get_consecutive_groups(df: pd.DataFrame, ass_inds: pd.Int64Index) -> tuple[list[list], list[int]]:
+        """
         ```python
-        >>> mask, mask_1L = TG.get_true_masks(inds)
-        
-        >>> mask[:5]
-        array([False, False,  True,  True,  True])
+        >>> groups[:5]
+        [[12, 13, 14, 15], [28, 29], [41, 42], [52, 53, 54], [56, 57, 58]]
 
-        >>> mask_1L[:5]
-        array([False,  True,  True,  True,  True])
+        >>> ungrouped[:5]
+        [6, 17, 23, 47, 66]
         ```
         """
-        mask = ((inds[1:] - inds[:-1]) == 1)
-        mask = np.insert(mask, 0, mask[0] == True)
-
-        mask_1L = mask.copy()
-        for i, m in enumerate(mask_1L[1:-1]):
-            if m == False and mask_1L[i+2] == True:
-                mask_1L[i+1] = True 
+        start_end_delta: np.ndarray = df['End_seconds'].iloc[:-1].values - df['Start_seconds'].iloc[1:].values
+        isConsec = (start_end_delta == 0)
         
-        return mask, mask_1L 
+        groups: list[list[int]] = [] 
 
-    @staticmethod
-    def get_true_groups(mask: np.ndarray, mask_1L: np.ndarray) -> list[pd.Index]:
-        """Yield consecutive subtitles"""
-        trues = pd.Series(~mask).\
-            cumsum().\
-            mask(mask).\
-            ffill().\
-            mask(~mask_1L)
+        ungrouped: list[int] = [] 
+        current_group: list[int] = []
+
+        for i, ind in enumerate(ass_inds[:-1]):
+            if isConsec[i]:
+                current_group.append(ind)
+                continue 
+            if isConsec[i-1]:
+                current_group.append(ind)
+                groups.append(current_group)
+                current_group = [] 
+                continue 
+            
+            ungrouped.append(ind)
+            continue 
+
+        if isConsec[-1]:
+            groups[-1].append(ass_inds[-1])
+        else:
+            ungrouped.append(ass_inds[-1])
         
-        for u in trues.unique():
-            if np.isnan(u): continue 
-            yield trues.loc[trues == u].index 
+        return groups, ungrouped 
 
     def aggregate_consecutive(
         self,
         df_: pd.DataFrame, 
-        inds: pd.Int64Index, 
-        mask: np.ndarray, 
-        mask_1L: np.ndarray, 
-        speaker: str
+        groups: list[list[int]],
+        ungrouped: list[int]
     ) -> pd.DataFrame:
-        """Aggregate timestamps for subtitles that are consecutive.
+        """Aggregate consecutive subtitles, then concatenate with non-consecutive subtitles.
+        ```python
+        >>> df_merge.head()
+
+        Start	End	Start_seconds	Start_samples	End_seconds	End_samples
+        6	0:04:43.95	0:04:45.10	283.95	12522195	285.10	12572910
+        12	0:04:57.55	0:05:14.01	297.55	13121955	314.01	13847841
+        17	0:05:16.30	0:05:20.70	316.30	13948830	320.70	14142870
+        23	0:05:34.18	0:05:38.47	334.18	14737338	338.47	14926527
+        28	0:05:47.32	0:05:54.58	347.32	15316812	354.58	15636978        
+        ```
         """
         
-        df_dict: dict[str, dict] = {col : {} for col in df_.columns}
-                
-        for grp in  self.get_true_groups(mask, mask_1L):
-            if grp.shape[0] < 2: continue 
+        df_dict: dict[int, dict[str, Any]] = {} 
+        end_cols = [c for c in df_.columns if 'End' in c]
 
-            key = inds[grp[0]]
+        df_2 = df_.copy().droplevel(0)
 
-            for col in df_dict.keys():
-                if 'Start' in col:
-                    df_dict[col][key] = df_.at[(speaker, key), col]
-                else:
-                    df_dict[col][key] = df_.at[(speaker, inds[grp[-1]]), col]
+        for g in groups:
+            start = df_2.loc[g[0], :].to_dict()
+            end = df_2.loc[g[-1], :]
+            
+            for col in end_cols:
+                start[col] = end.at[col]
+
+            df_dict[g[0]] = start 
+
+        df_merge = pd.DataFrame.from_dict(df_dict, orient='index').\
+            append(df_2.loc[ungrouped, :]).\
+            sort_index()
         
-        return pd.DataFrame.from_dict(df_dict, orient='columns')
-
-    def concat_non_consecutive(self, df_: pd.DataFrame, trues: pd.DataFrame, mask_1L: np.ndarray) -> pd.DataFrame:
-        """Concatenate dataframes containing timestamps of non-consecutive subtitles and aggregated consecutive subtitles.
-        """
-        return pd.concat(
-            [df_.loc[self.idx[:, ~mask_1L], :].droplevel(0), trues], 
-            axis=0
-        ).sort_index()
+        return df_merge 
 
     def aggregate(self, df: pd.DataFrame, speaker: str) -> pd.DataFrame:
         """
         """
         df_ = self.select_speaker(df, speaker)
-        inds = df_.index.get_level_values(level=1)
-        mask, mask_1L = self.get_consecutive_mask(inds)
-        grouped = self.aggregate_consecutive(df_, inds, mask, mask_1L, speaker)
-        return self.concat_non_consecutive(df_, grouped, mask_1L)
-
+        ass_inds = df_.index.get_level_values(level=1)
+        groups, ungrouped = self.get_consecutive_groups(df_, ass_inds)
+        return self.aggregate_consecutive(df_, groups, ungrouped)
 
 def main(filename_prefix: str, read_clip=True):
     datadir = Path.cwd() / 'data'
