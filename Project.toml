@@ -1,0 +1,9 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Feather = "becb17da-46f6-5d3c-ad1b-1c5fe96bc73c"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+Parquet = "626c502c-15b0-58ad-a749-f091afb673ae"
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"
+RecursiveArrayTools = "731186ca-8d62-57ce-b412-fbd966d074cd"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
