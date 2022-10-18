@@ -214,8 +214,10 @@ class ConsecutiveGrouper:
         [6, 17, 23, 47, 66]
         ```
         """
-        start_end_delta: np.ndarray = df['End_seconds'].iloc[:-
-                                                             1].values - df['Start_seconds'].iloc[1:].values
+        start_end_delta: np.ndarray = \
+            df['End_seconds'].iloc[:-1].values -\
+            df['Start_seconds'].iloc[1:].values
+
         isConsec = (start_end_delta == 0)
 
         groups: list[list[int]] = []
