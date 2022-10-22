@@ -1,8 +1,9 @@
 from pathlib import Path
+import pandas as pd 
 from datetime import timedelta
 from typing import Union
-from tkinter import filedialog
-import tkinter as tk 
+
+from common import get_filename
 
 BASEDIR = Path("./RemoveSilence/")
 ASS_HEADER_PATH = BASEDIR / "ASS_header.txt"
@@ -24,8 +25,9 @@ def add_dialog(
 def time2stamp(seconds: float) -> str:
     """Convert seconds into timestamp"""
     stamp = timedelta(seconds=seconds)
-    milliseconds = int(round(stamp.microseconds/1e6, ndigits=2)*100)
-    return str(stamp)[:8] + str(milliseconds)
+    # milliseconds = int(round(stamp.microseconds/1e6, ndigits=2)*100)
+    # return str(stamp)[:8] + str(milliseconds)
+    return str(stamp)
 
 
 def create_ass_dialog(times: list[float], text: list[str] = None, **diag_kw) -> str:
@@ -107,6 +109,12 @@ def create_ass_file(
         raise FileNotFoundError(f"{outdir} is not a valid directory.")
 
     outpath = outdir / f"{outname}.ass"
+
+    if outpath.is_file():
+        overwrite = input(f"{outpath} already exists. Overwrite? [y/n]").lower()
+        if overwrite != 'y':
+            raise FileExistsError(outpath)
+
     with open(outpath, 'w', encoding='utf-8') as io:
         io.write(full_content)
 
@@ -120,6 +128,31 @@ def test():
 
     return create_ass_file("ASS_test", times)
 
+def parse_interval_file(intervals_file: Path) -> list[float]:
+    ext = intervals_file.suffix
+    if ext in ['.csv', '.tsv']:
+        df = pd.read_csv(
+            intervals_file, header=None, index_col=None, 
+            sep=',' if ext == '.csv' else '\t'
+        )
+        return df.values.tolist()
+    if ext == '.txt':
+        with open(ext, 'r', encoding='utf-8') as file:
+            return [float(x.strip()) for x in file.read().split(',')]
+    
+    raise Exception(f"{intervals_file} must have .csv, .tsv, or .txt extension")
+
+
+def main():
+    intervals_file = get_filename(
+        title="Select file of silence intervals.",
+        filetypes=(
+            ('Text files', '*.txt'),
+            ('CSV or TSV files', '*.csv,*.tsv'),
+            ('All files', '*.*')
+        )
+    )
 
 if __name__ == '__main__':
-    test()
+    # test()
+    main()

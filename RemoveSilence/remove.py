@@ -3,34 +3,18 @@ from subprocess import Popen
 import tkinter as tk
 from tkinter import filedialog as fd
 import re
+from time import sleep
 
-from RemoveSilence.create_ass import create_ass_file
+from common import get_filename, HOMEDIR
+from create_ass import create_ass_file
 
-HOMEDIR = Path.cwd()
+
 SILENCE_PAT = re.compile(
     r"^(?:\[silencedetect\s@\s[\w]*\]\ssilence_(?:start|end)\:\s)([\d\.]+)"
 )
 
 
-def get_filename(
-    init_dir: Path = r"C:/Users/delbe/Videos/subtitles/full_raw/"
-) -> Path:
-    root = tk.Tk()
-
-    filename = fd.askopenfilename(
-        title="Open input video file.",
-        initialdir=init_dir if init_dir else HOMEDIR,
-        filetypes=(
-            ('Video files', '*.mp4'),
-            ('All files', '*.*')
-        )
-    )
-
-    root.destroy()
-    return Path(filename)
-
-
-def run_silence_remover(filename: Path, noise_level=0.015, noise_duration=1) -> None:
+def run_silence_remover(filename: Path, noise_level=0.015, noise_duration=1) -> Path:
     outname = f"{filename.stem}_silencedetect.txt"
     cmd = f"""ffmpeg -i "{str(filename)}" -hide_banner -af silencedetect=n={noise_level}:d={noise_duration} -f null - 2> {outname}"""
     Popen(['powershell.exe', cmd])
@@ -56,18 +40,38 @@ def extract_silence_times(lines: list[str]) -> list[float]:
 
 
 def detect_silence(
+        init_dir: Path,
         noise_level='-30dB', noise_duration=1,
         ass_name: str = None, create_ass=False) -> tuple[Path, list[float]]:
 
-    filename = get_filename()
+    filename = get_filename(
+        init_dir=init_dir,
+        title="Open input video file.",
+        filetypes=(
+            ('Video files', '*.mp4'),
+            ('All files', '*.*')
+        )
+    )
+
+    print("Detecting silence with ffmpeg...")
     outname = run_silence_remover(
         filename, noise_level=noise_level, noise_duration=noise_duration)
+    
+    if not outname.is_file():
+        sleep(10)
+    if not outname.is_file():
+        raise FileNotFoundError(outname)
+
+    print("Reading ffmpeg output...")
     lines = process_silence_txt(outname)
+
+    print("Extracting silence intervals...")
     times = extract_silence_times(lines)
 
     if create_ass:
+        print("Creating .ass file..")
         create_ass_file(
-            'test' if not ass_name else ass_name,
+            filename.stem if not ass_name else ass_name,
             times, outdir=HOMEDIR, video_file=filename
         )
 
@@ -98,7 +102,18 @@ def run_splice_and_join(filename: Path, times: list[float]):
     print(cmd)
     Popen(cmd)
 
+def main(
+    video_dir=r"C:/Users/delbe/Videos/subtitles/full_raw/",
+    noise_level="-45dB", noise_duration=1, remove=False):
+    filename, times = detect_silence(
+        init_dir=video_dir,
+        noise_level=noise_level, 
+        noise_duration=noise_duration, 
+        ass_name=None, create_ass=True
+    )
 
-filename, times = detect_silence(noise_level='-45dB', noise_duration=1, ass_name="uruha_50k", create_ass=True)
+    if remove:
+        run_splice_and_join(filename, times)
 
-run_splice_and_join(filename, times)
+if __name__ == '__main__':
+    main(noise_level="-40dB", noise_duration=1.5)
