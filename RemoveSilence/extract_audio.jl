@@ -13,7 +13,7 @@ function ffmpeg_extract_audio(filename:: String):: Bool
     outname = "$filename.m4a"
     
     if !isfile(outname)
-        cmd = "ffmpeg -i $filename.mp4 -vn -acodec copy $outname"
+        cmd = "ffmpeg -hide_banner -i $filename.mp4 -vn -acodec copy $outname"
         run(`powershell $cmd`)
     end 
 
@@ -101,7 +101,7 @@ function splice_video(filepath:: String, intervals:: Vector{Tuple{Float64, Float
     ]
     @info concats 
 
-    cmd_header = "ffmpeg -i \"$filepath.mp4\" -filter_complex "
+    cmd_header = "ffmpeg -hide_banner -i \"$filepath.mp4\" -filter_complex "
 
     for i = 1:2 
         pairs_i = join(pairs[i:2:end], "\n")
@@ -112,7 +112,7 @@ function splice_video(filepath:: String, intervals:: Vector{Tuple{Float64, Float
         run(`powershell.exe $cmd_i`)
     end 
     
-    merge = "ffmpeg -i $(outname)_1.mp4 -i $(outname)_2.mp4 -c:v copy -c:a copy $(outname).mp4"
+    merge = "ffmpeg -hide_banner -i $(outname)_1.mp4 -i $(outname)_2.mp4 -c:v copy -c:a copy $(outname).mp4"
     run(`powershell.exe $merge`)
 end 
 
@@ -129,7 +129,7 @@ function splice_video_together(filepath:: String, intervals:: Vector{Tuple{Float
         "concat=n=$(num):v=1:a=1[outv][outa]"
     filter_ = "\"$(pairs * concat_fn)\""
     map_fn = "-map [outv] -map [outa]"
-    cmd = `powershell.exe ffmpeg -i "$filepath.mp4" -filter_complex $filter_ $map_fn $output_name`
+    cmd = `powershell.exe ffmpeg -hide_banner -i "$filepath.mp4" -filter_complex $filter_ $map_fn $output_name`
     
     run(cmd)
 
@@ -138,7 +138,32 @@ function splice_video_together(filepath:: String, intervals:: Vector{Tuple{Float
     end 
 end 
 
-function remove_silence(filename:: String; splice=true, video_dir=VIDEO_PATH, silence_duration=1.0, silence_threshold=1e-2)
+struct TooManyIntervalsException <: Exception
+    num_intervals:: Int64 
+    threshold:: Float64 
+    duration:: Float64 
+end 
+
+Base.showerror(io:: IO, e::TooManyIntervalsException) = print(io,
+    """
+    too many intervals were found: $(e.num_intervals)
+    \t Threshold: $(e.threshold)
+    \t Duration: $(e.duration)
+
+    Consider lowering the threshold or raising the duration.
+    """
+)
+
+"""Remove silence from a given .mp4 file 
+"""
+function remove_silence(
+    filename:: String; 
+    splice:: Bool=true, 
+    video_dir:: String=VIDEO_PATH, 
+    silence_duration:: Float64=1.0, 
+    silence_threshold:: Float64=1e-2, 
+    return_intervals:: Bool=false)
+    
     filepath = video_dir * filename 
     audio_data, audio_sr = open_video(filepath)
     signal = abs.(audio_data[1,:])
@@ -154,7 +179,13 @@ function remove_silence(filename:: String; splice=true, video_dir=VIDEO_PATH, si
     @info "Number of streams: $(length(seconds))"
 
     if length(seconds) > 300 
-        error("Too many streams!")
+        throw(
+            TooManyIntervalsException(
+                length(seconds), 
+                silence_threshold,
+                silence_duration
+            )
+        )
     end 
 
     if splice 
@@ -162,8 +193,97 @@ function remove_silence(filename:: String; splice=true, video_dir=VIDEO_PATH, si
         splice_video_together(filepath, seconds)
     end 
 
-    return intervals, seconds 
+    if return_intervals
+        return intervals, seconds 
+    end
 end 
 
-filename = "uruha_unei-gifting_voice-turtle"
-remove_silence(filename; silence_duration=1.0, silence_threshold=2e-2, splice=true)
+function remove_silence(
+    filename:: String, seconds:: Vector{Tuple{Float64, Float64}};
+    video_dir:: String=VIDEO_PATH)
+    filepath = video_dir * filename 
+    splice_video_together(filepath, seconds)
+end 
+
+function iterative_removal(
+    filename:: String, 
+    threshold:: Float64, 
+    init_dur:: Float64; 
+    min_dur:: Float64=0.8,
+    dur_step_up:: Float64=1.0,
+    dur_step_down:: Float64=0.5,
+    max_steps:: Int64=10,
+    min_num_intervals:: Int64=10,
+    kwargs...)
+    
+    try 
+        @assert min_dur < init_dur 
+    catch 
+        throw(
+            DomainError(
+                init_dur,
+                "Initial duration $(init_dur)-s >= minimum duration $(min_dur)-s"
+            )
+        )
+    end 
+    
+    fname = filename 
+    dur = init_dur 
+    num_steps = 0 
+
+    while dur >= min_dur 
+        if num_steps >= max_steps
+            @info "Number of steps $(num_steps) >= max steps $(max_steps)"
+            break 
+        end 
+
+        @info "Step $(num_steps) of $(max_steps).....
+        Current duration: $(dur). Target: $(min_dur)"
+        
+        try 
+            _, secs = remove_silence(
+                fname;
+                silence_duration=dur, 
+                silence_threshold=threshold,
+                splice=false,
+                return_intervals=true,
+                kwargs...
+                )
+                if length(secs) < min_num_intervals
+                    @info "Not enough intervals. Stepping down."
+                    dur -= dur_step_down
+                else 
+                    @info "\tIntervals: $(length(secs))"
+                    remove_silence(fname, secs)
+                    fname *= "_$(@sprintf("%.0f", dur))-s"
+                end 
+        catch e 
+            if isa(e, TooManyIntervalsException)
+                dur += dur_step_up
+            else 
+                throw(e)
+            end 
+        end 
+    end 
+    @info "Final removal iteration completed with 
+        Duration $(dur)
+        Threshold $(threshold)
+
+        The output file is:
+        \t$(fname)"
+end 
+
+dB_to_AR(dB::Number) = sqrt(10^(dB/10))
+
+filename = "uruha_1y_2-2s_1-4s"
+
+_, sec = remove_silence(filename; silence_duration=0.85, silence_threshold=dB_to_AR(-35), splice=true, return_intervals=true)
+
+iterative_removal(filename, 1e-2, 3.0)
+
+"""To-do
+1. Add file dialog to select filename 
+2. Option to keep/remove files after downloading
+3. Option to use the separate method  
+4. Logging 
+"""
