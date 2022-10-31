@@ -2,13 +2,19 @@ using PyCall
 using Statistics
 using StatsBase
 using IterTools
+using Printf
+using DelimitedFiles
 
 # import audiofile 
 audiofile = PyCall.pyimport("audiofile")
 
 # constants 
 VIDEO_PATH = "C:/Users/delbe/Videos/subtitles/full_raw/"
+SECS_PATH = VIDEO_PATH * "removesilence_timecodes/"
 
+"""
+Since we can't read the audio from video, we extract the audio from a video, and then detect silence in the audio
+"""
 function ffmpeg_extract_audio(filename:: String):: Bool 
     outname = "$filename.m4a"
     
@@ -24,6 +30,9 @@ function ffmpeg_extract_audio(filename:: String):: Bool
     end 
 end 
 
+"""
+Open the `.m4a` file corresponding to a given video. If the `.m4a` file is not found, it is created with `ffmpeg_extract_audio`
+"""
 function open_video(filepath:: String):: Tuple{Matrix{Float32}, Int64}
     if !isfile(filepath * ".m4a")
         ffmpeg_extract_audio(filepath)
@@ -31,6 +40,7 @@ function open_video(filepath:: String):: Tuple{Matrix{Float32}, Int64}
     return audiofile.read(filepath * ".m4a")
 end 
 
+"""Get start and end times of non-silent intervals"""
 function get_ranges(signal:: Vector{Float32}, rate:: Float64, threshold:: Float64, duration:: Float64):: Vector{Tuple{Int64, Int64}}
     _, lens = StatsBase.rle(signal .<= threshold)
     
@@ -58,22 +68,19 @@ function get_ranges(signal:: Vector{Float32}, rate:: Float64, threshold:: Float6
     return partition(chunks, 2) |> collect 
 end 
 
-function create_splice_pair(ind:: Int, start_end:: Tuple{Float64, Float64}):: Tuple{String, String}
-    t0, t1 = start_end 
-    return ("[0:v]trim=start=$t0:end=$t1,setpts=PTS-STARTPTS[$(ind)v];", 
-        "[0:a]atrim=start=$t0:end=$t1,asetpts=PTS-STARTPTS[$(ind)a];")
-end 
-
-
+"""
+Return the command for including one interval (from `start_end[1]` to `start_end[2]` of the video) in the `concat` filter of `ffmpeg`
+"""
 function create_splice_pair_str(ind:: Int, start_end:: Tuple{Float64, Float64}):: String
     t0, t1 = start_end 
-    return "[0:v]trim=start=$t0:end=$t1,setpts=PTS-STARTPTS[$(ind)v];
-    [0:a]atrim=start=$t0:end=$t1,asetpts=PTS-STARTPTS[$(ind)a];"
+        return "[0:v]trim=start=$t0:end=$t1,setpts=PTS-STARTPTS[$(ind)v];
+        [0:a]atrim=start=$t0:end=$t1,asetpts=PTS-STARTPTS[$(ind)a];"
 end 
 
 Iters2Vec(x) = collect(Iterators.flatten(x))
 joinNewline(x) = join(x, "\n")
 
+"""Return the suffix to the `concat` filter for `ffmpeg`"""
 function get_concat(num:: Int64, isVideo:: Bool):: String 
     head = "concat=n=$(num)"
     if isVideo
@@ -198,6 +205,9 @@ function remove_silence(
     end
 end 
 
+"""NOT IMPLEMENTED! 
+Another version that accepts pre-computed intervals. 
+Thus, it skips computing intervals and goes directly to splicing."""
 function remove_silence(
     filename:: String, seconds:: Vector{Tuple{Float64, Float64}};
     video_dir:: String=VIDEO_PATH)
@@ -205,6 +215,8 @@ function remove_silence(
     splice_video_together(filepath, seconds)
 end 
 
+"""Iteratively runs `remove_silence` to check for a working `silence_threshold`, and then runs `remove_silence` up to some maximum number of times. 
+"""
 function iterative_removal(
     filename:: String, 
     threshold:: Float64, 
@@ -216,6 +228,8 @@ function iterative_removal(
     min_num_intervals:: Int64=10,
     kwargs...)
     
+    error("This isn't well-tested. Error until otherwise.")
+
     try 
         @assert min_dur < init_dur 
     catch 
@@ -275,11 +289,27 @@ end
 
 dB_to_AR(dB::Number) = sqrt(10^(dB/10))
 
-filename = "uruha_1y_2-2s_1-4s"
 
-_, sec = remove_silence(filename; silence_duration=0.85, silence_threshold=dB_to_AR(-35), splice=true, return_intervals=true)
+function save_secs(
+    seconds:: Vector, filename:: String; 
+    outdir=SECS_PATH) 
+    
+    open(outdir * "$(filename).csv", "w") do io 
+        writedlm(io, seconds, ',')
+    end 
+end 
 
-iterative_removal(filename, 1e-2, 3.0)
+# ---------------------------------------------------------------------------- #
+#                                  Test usage                                  #
+# ---------------------------------------------------------------------------- #
+
+filename = "uruha_wanchan"
+
+_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-35), splice=false, return_intervals=true)
+
+save_secs(secs, filename)
+
+
 
 """To-do
 1. Add file dialog to select filename 

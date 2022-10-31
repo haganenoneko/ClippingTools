@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd 
 from datetime import timedelta
 from typing import Union
+import numpy as np 
 
 from common import get_filename
 
@@ -30,9 +31,12 @@ def time2stamp(seconds: float) -> str:
     return str(stamp)
 
 
+vtime2stamp = np.vectorize(time2stamp)
+
 def create_ass_dialog(times: list[float], text: list[str] = None, **diag_kw) -> str:
     lines: list[str] = []
-    stamps = [time2stamp(t) for t in times]
+    stamps = vtime2stamp(times)
+
     for i in range(0, len(times), 2):
         start, end = stamps[i:i+2]
         lines.append(
@@ -76,6 +80,10 @@ def get_header(
     if isinstance(header, Path):
         with open(header, 'r', encoding='utf-8') as io:
             header = io.read()
+
+    if (video_file is None) and\
+        (audio_file is None):
+        return header 
 
     if video_file:
         if audio_file:
@@ -128,30 +136,40 @@ def test():
 
     return create_ass_file("ASS_test", times)
 
-def parse_interval_file(intervals_file: Path) -> list[float]:
-    ext = intervals_file.suffix
+def parse_interval_file(fpath: Path) -> list[float]:
+    ext = fpath.suffix
     if ext in ['.csv', '.tsv']:
         df = pd.read_csv(
-            intervals_file, header=None, index_col=None, 
+            fpath, header=None, index_col=None, 
             sep=',' if ext == '.csv' else '\t'
         )
-        return df.values.tolist()
+        
+        df = pd.read_csv(fpath, header=None)
+        secs = df.values.flatten()
+        secs.sort() 
+
+        return secs 
+
     if ext == '.txt':
         with open(ext, 'r', encoding='utf-8') as file:
             return [float(x.strip()) for x in file.read().split(',')]
     
-    raise Exception(f"{intervals_file} must have .csv, .tsv, or .txt extension")
+    raise Exception(f"{fpath} must have .csv, .tsv, or .txt extension")
 
 
 def main():
-    intervals_file = get_filename(
+    fname = get_filename(
         title="Select file of silence intervals.",
         filetypes=(
-            ('Text files', '*.txt'),
-            ('CSV or TSV files', '*.csv,*.tsv'),
-            ('All files', '*.*')
+            ('CSV files', '*.csv'),
+            # ('Text files', '*.txt'),
+            # ('All files', '*.*')
         )
     )
+
+    fp = Path(fname)
+    secs = parse_interval_file(fp)
+    create_ass_file(fp.stem, secs, outdir=fp.parent)
 
 if __name__ == '__main__':
     # test()
