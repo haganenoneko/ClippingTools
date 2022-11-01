@@ -2,7 +2,6 @@
 #         Use dialog timestamps in an .ASS file to concatenate a video         #
 # ---------------------------------------------------------------------------- #
 
-import enum
 import tkinter as tk
 from tkinter.filedialog import askopenfilenames
 
@@ -83,23 +82,6 @@ def read_ass_file(fp: Path) -> tuple[Path, list[str]]:
 def _merge(starts: np.ndarray, ends: np.ndarray) -> tuple[float, float]:
     return starts.min(), ends.max()
 
-def extract_timestamps(dialog: list[str]) -> list[tuple[float, float]]:
-    raise NotImplementedError()
-
-    # extract timestamps for each dialog line 
-    starts, ends = list(map(vts2secs, parse_dialog(dialog)))
-
-    # sort lines by ascending start time 
-    starts, ends = sorted(zip(starts, ends), key=lambda tup: tup[0])
-
-    if isinstance(starts, list):
-        starts = np.array(starts)
-        ends = np.array(ends)
-
-    isDup = (starts[1:] - starts[:-1]) < 0.05
-    # while isDup.any():
-
-
 def create_splice_pair(ind: int, start_end: tuple[float]) -> str:
     """Add single command for `ffmpeg` to concatenate a video from `start_end[0]` to `start_end[1]`
     """
@@ -170,13 +152,6 @@ def main(run_concat=True):
     files = open_fd()
     for f in files:
         parse_ass_file(f, run_concat=run_concat)
-        # try:
-        # except Exception as e:
-        #     if isinstance(e, RuntimeError):
-        #         continue
-        #     elif isinstance(e, KeyboardInterrupt):
-        #         print("Interrupted. Files found:\n{files}")
-        #         break
 
 
 if __name__ == '__main__':

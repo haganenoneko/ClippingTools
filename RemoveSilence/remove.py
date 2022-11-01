@@ -38,11 +38,13 @@ def extract_silence_times(lines: list[str]) -> list[float]:
     times.sort()
     return times
 
-
+### THIS WILL RAISE AN ERROR 
 def detect_silence(
         init_dir: Path,
         noise_level='-30dB', noise_duration=1,
         ass_name: str = None, create_ass=False) -> tuple[Path, list[float]]:
+
+    raise NotImplementedError(f"Silence detection with ffmpeg is unreliable. Please instead provide silence intervals from a file.")
 
     filename = get_filename(
         init_dir=init_dir,
