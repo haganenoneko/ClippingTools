@@ -1,4 +1,4 @@
-from RemoveSilence.common import get_filename, run_powershell
+from common import get_filenames, run_powershell
 from pathlib import Path 
 from numpy import vectorize 
 
@@ -50,4 +50,11 @@ def splice_and_concat(
     run_powershell(cmd)
 
 def main():
-    fpath = get_filename(init_dir=SECS_PATH)
+    fpath = get_filenames(
+        init_dir=SECS_PATH,
+        title="Select CSV file containing dialog intervals",
+        filetypes=(
+            ("CSV files", "*.csv"),
+            ("TSV files", "*.tsv"),
+        )
+    )

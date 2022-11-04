@@ -3,7 +3,7 @@ from pathlib import Path
 from subprocess import Popen, PIPE
 from tkinter import filedialog as fd
 
-from typing import Union 
+from typing import Union
 
 HOMEDIR = Path.cwd()
 
@@ -11,27 +11,30 @@ HOMEDIR = Path.cwd()
 #                          Filesystem and OS commands                          #
 # ---------------------------------------------------------------------------- #
 
+
 def check_overwrite(fp: Path) -> bool:
-    if not fp.is_file(): return True 
+    if not fp.is_file():
+        return True
     ow = input(f"{fp} already exists. Overwrite? [y/n]").lower()
     if ow != 'y':
-        return False 
+        return False
     else:
-        return True 
+        return True
+
 
 def get_filenames(
-    title: str, 
-    filetypes: list[tuple[str, str]],
-    init_dir: Path = None, 
-    multiple=False, 
-    **kwargs) -> Union[list[Path], Path]:
+        title: str,
+        filetypes: list[tuple[str, str]],
+        init_dir: Path = None,
+        multiple=False,
+        **kwargs) -> Union[list[Path], Path]:
 
     root = tk.Tk()
     filenames = fd.askopenfilenames(
         title=title,
         multiple=multiple,
         initialdir=init_dir,
-        filetypes=filetypes, 
+        filetypes=filetypes,
         **kwargs
     )
     root.destroy()
@@ -40,6 +43,7 @@ def get_filenames(
         return list(map(lambda x: Path(x), filenames))
     else:
         return Path(filenames[0])
+
 
 def run_powershell(cmd: str, stdout=PIPE, stderr=PIPE) -> Popen:
     return Popen(['powershell.exe', cmd], stdout=PIPE, stderr=PIPE)
@@ -65,6 +69,7 @@ def get_video_format(fp: Path) -> str:
 
 
 def get_video_codecs(fp: Path) -> str:
+    """Get a list of codecs for a video"""
     cmd = f"ffprobe -v error -hide_banner -of default=noprint_wrappers=0 -print_format flat  -select_streams v:0 -show_entries stream=codec_name,codec_long_name,profile,codec_tag_string {fp}"
     codecs = extract_ps_output(cmd)
     print(codecs)
@@ -76,6 +81,16 @@ def get_video_duration(fp: Path) -> float:
     cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {fp}"
     dur = extract_ps_output(cmd)
     return float(dur)
+
+def get_video_resolution(fp: Path, as_ints=False) -> str:
+    """Get resolution of a video `(width x height)`"""
+    cmd = f"ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 {fp}"
+    res = extract_ps_output(cmd)
+
+    if as_ints:
+        return [int(x) for x in res.split('x')]
+    else:
+        return res 
 
 # ---------------------------------------------------------------------------- #
 #                            Simple ffmpeg commands                            #

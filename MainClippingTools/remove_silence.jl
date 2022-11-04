@@ -294,26 +294,20 @@ function save_secs(
     seconds:: Vector, filename:: String; 
     outdir=SECS_PATH) 
     
-    open(outdir * "$(filename).csv", "w") do io 
+    outname = outdir * "$(filename).csv"
+    open(outname, "w") do io 
         writedlm(io, seconds, ',')
     end 
+
+    @info "Intervals saved to $outname"
 end 
 
 # ---------------------------------------------------------------------------- #
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "uruha_wanchan"
+filename = "uruha_1st_bday"
 
-_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-35), splice=false, return_intervals=true)
+_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-30), splice=false, return_intervals=true)
 
 save_secs(secs, filename)
-
-
-
-"""To-do
-1. Add file dialog to select filename 
-2. Option to keep/remove files after downloading
-3. Option to use the separate method  
-4. Logging 
-"""

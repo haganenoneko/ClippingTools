@@ -1,10 +1,7 @@
 from pathlib import Path
-from pathlib import Path
-from subprocess import Popen, PIPE
-
 from common import get_filename, run_powershell, get_video_duration, get_video_format
-# from RemoveSilence.common import get_filename
 
+# path to video files
 VIDEODIR = Path(r"C:/Users/delbe/Videos/subtitles/full_raw/")
 
 

@@ -3,7 +3,7 @@
 # ---------------------------------------------------------------------------- #
 
 import tkinter as tk
-from tkinter.filedialog import askopenfilenames
+from tkinter import filedialog as fd
 
 import re
 import numpy as np
@@ -11,6 +11,8 @@ import numpy as np
 from pathlib import Path
 from typing import Generator
 from subprocess import Popen
+
+from ass_tools import clean_intervals
 
 # ---------------------------------------------------------------------------- #
 #                            Functions and constants                           #
@@ -38,7 +40,7 @@ def open_fd(initdir: Path = INITDIR) -> list[str]:
     Initialize file dialog at `initdir` and return list of selected .ASS file paths
     """
     root = tk.Tk()
-    filenames = askopenfilenames(
+    filenames = fd.askopenfilenames(
         multiple=True,
         initialdir=initdir,
         filetypes=[("ASS files", "*.ass")],
@@ -111,7 +113,7 @@ def get_filter(
     return num, f"{pairs} {suffix}"
 
 
-def parse_ass_file(fp: Path, run_concat=True) -> str:
+def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> str:
     """Parse .ASS file and construct command to concatenate intervals with subtitles, assuming all intervals are non-overlapping.
 
     Args:
@@ -122,13 +124,31 @@ def parse_ass_file(fp: Path, run_concat=True) -> str:
         str: `ffmpeg` command for concatenating dialog intervals
     """
     vp, dialog = read_ass_file(fp)
+    
+    if (not vp.is_file()) or select_vp:
+        root = tk.Tk()
+        vp = fd.askopenfilename(
+            initialdir=fp.parent, 
+            title="Select video file to concatenate.",
+            filetypes=(("MP4 files", "*.mp4"),)
+        )
+        root.destroy()
+        vp = Path(vp)
 
-    intervals = zip(*map(vts2secs, parse_dialog(dialog)))
+    raw_intervals = zip(*map(vts2secs, parse_dialog(dialog)))
+    intervals = clean_intervals(list(raw_intervals))
+
+    if confirm:
+        print(f"The following intervals will be used.", intervals, sep='\n\n')
+        if input("Continue program? [y/n]").lower() == 'n':
+            return 
+
     num, filters = get_filter(intervals)
     suffix = f"concat=n={num}:v=1:a=1[outv][outa]"
 
     concat_ = f"-filter_complex \"{filters}{suffix}\""
     map_ = "-map [outv] -map [outa]"
+
     outname = vp.parent / f"{vp.stem}_concat.mp4"
 
     cmd = f"ffmpeg -hide_banner -i " +\
@@ -147,12 +167,15 @@ def parse_ass_file(fp: Path, run_concat=True) -> str:
 #                Function to execute on, e.g. file double-click                #
 # ---------------------------------------------------------------------------- #
 
-def main(run_concat=True):
+def main(select_vp=False, run_concat=True):
 
     files = open_fd()
     for f in files:
-        parse_ass_file(f, run_concat=run_concat)
-
+        parse_ass_file(
+            Path(f), 
+            run_concat=run_concat,
+            select_vp=select_vp
+        )
 
 if __name__ == '__main__':
-    main()
+    main(select_vp=True)

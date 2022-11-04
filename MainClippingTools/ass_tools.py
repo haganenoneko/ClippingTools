@@ -1,6 +1,4 @@
 import re
-from tabnanny import check
-from tkinter import dialog
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -8,12 +6,13 @@ from typing import Union
 from datetime import timedelta
 
 from common import check_overwrite
-# from RemoveSilence.common import check_overwrite
 
+# directory containing subtitle files 
 INIT_DIR = Path("C:/Users/delbe/Videos/subtitles/subs/")
 
-HOME_DIR = Path.cwd() / "RemoveSilence"
-ASS_HEADER_PATH = HOME_DIR / "ASS_header.txt"
+HOME_DIR = Path.cwd() / "MainClippingTools"
+
+ASS_HEADER_PATH = HOME_DIR / "assets/ASS_header.txt"
 
 # ---------------------------------------------------------------------------- #
 #                                Regex patterns                                #
@@ -23,6 +22,57 @@ DIALOG_PAT = re.compile(r"^(?:Dialogue\:\s\d\,)([\d\:\.]+),([\d\:\.]+).*$")
 
 DIALOG_TEMPLATE =\
     "Dialogue: {layer},{start_time},{end_time},{style},{name},{marginL},{marginR},{marginV},{effect},{text}"
+
+# ------------------------------ Other functions ----------------------------- #
+
+def clean_intervals(
+    intervals: list[tuple],
+    min_dur: float=0.5,
+    min_gap: float=0.2,
+) -> list[tuple[float, float]]:
+    """Clean up intervals by
+
+        1. ensuring intervals are greater than a minimum duration
+        2. ensuring intervals are separated by a minimum duration
+        3. concatenating overlapping intervals (https://stackoverflow.com/a/58976449/10120386)
+
+    Args:
+        intervals (list[tuple]): list of `(start, end)` times
+        min_dur (float, optional): minimum interval duration. Defaults to 0.1.
+        min_gap (float, optional): minimum separation between adjacent intervals. Defaults to 0.2.
+
+    Returns:
+        list[tuple[float, float]]: list of processed `(start, end)` times
+    """
+
+    arr = np.sort(np.array(intervals), axis=0)
+
+    # remove intervals with less than the minimum duration
+    durs = arr[:, 1] - arr[:, 0]
+    arr = arr[durs > min_dur]
+
+    # remove overlapping intervals and ensure gaps > min_gap
+    valid = np.zeros(arr.shape[0]+1, dtype=bool)
+    valid[[0, -1]] = 1
+    valid[1:-1] = arr[1:, 0] -\
+        np.maximum.accumulate(arr[:-1, 1]) >= min_gap
+
+    merged = np.vstack(
+        (
+            arr[valid[:-1], 0],
+            arr[valid[1:], 1]
+        )
+    ).T
+
+    print(
+        f"""Results of `clean_intervals`
+        Initial no.:\t{len(intervals)}
+        Cleaned no.:\t{merged.shape[0]}
+        """
+    )
+
+    return tuple(map(tuple, merged))
+
 
 # ---------------------------------------------------------------------------- #
 #                               Writing ASS files                              #
@@ -55,25 +105,32 @@ class ASSWriter:
 
         return self._dialogTemplate.format(
             start_time=start_time, end_time=end_time, text=text,
+            **kwargs
         )
 
     def create_ass_dialog(
             self,
-            times: list[tuple[float, float]],
+            intervals: list[tuple[float, float]],
             text: list[str] = None,) -> str:
 
         dialog: str = ''
-        tstamps: list[str] = self._vec_ts(times)
+        starts, ends = map(self._vec_ts, zip(*intervals))
 
-        for i in range(0, len(times), 2):
-            start, end = tstamps[i:i+2]
-            line = self.add_dialog(
-                text[int(i/2)] if text else 'n/a',
-                start, end,
-                **self._dialog_kw)
+        if text is None:
+            for start, end in zip(starts, ends):
+                line = self.add_dialog(
+                    'n/a', start, end,
+                    **self._dialog_kw)
 
-            dialog += f"{line}\n"
+                dialog += f"{line}\n"
+        else:
+            for start, end, t in zip(starts, ends, text):
+                line = self.add_dialog(
+                    t, start, end,
+                    **self._dialog_kw)
 
+                dialog += f"{line}\n"
+        
         return dialog.rstrip()
 
     @staticmethod
@@ -159,7 +216,7 @@ class ASSWriter:
         return full_content
 
 
-def parse_interval_file(fpath: Path) -> list[float]:
+def parse_interval_file(fpath: Path, as_tuples=False) -> list[float]:
     ext = fpath.suffix
     if ext in ['.csv', '.tsv']:
         df = pd.read_csv(
@@ -168,14 +225,25 @@ def parse_interval_file(fpath: Path) -> list[float]:
         )
 
         df = pd.read_csv(fpath, header=None)
-        secs = df.values.flatten()
-        secs.sort()
 
-        return secs
+        if as_tuples:
+            return list(df.itertuples(name=None, index=False))
+        else:
+            secs = df.values.flatten()
+            secs.sort()
+            return secs 
 
     if ext == '.txt':
         with open(ext, 'r', encoding='utf-8') as file:
-            return [float(x.strip()) for x in file.read().split(',')]
+            secs = [float(x.strip()) for x in file.read().split(',')]
+
+        if as_tuples:
+            secs = [
+                (secs[i], secs[i+1]) 
+                for i in range(0, len(secs), 2)
+            ]
+        
+        return secs 
 
     raise Exception(f"{fpath} must have .csv, .tsv, or .txt extension")
 
@@ -183,6 +251,10 @@ def parse_interval_file(fpath: Path) -> list[float]:
 # ---------------------------------------------------------------------------- #
 #                               Reading ASS files                              #
 # ---------------------------------------------------------------------------- #
+
+class VideoNotFoundError(FileNotFoundError):
+    def __init__(self, ass_path: Path) -> None:
+        super().__init__(f"No video was found for ASS file at\n{ass_path}")
 
 class ASSReader:
     def __init__(self) -> None:
@@ -208,48 +280,6 @@ class ASSReader:
             self._v_ts2secs,
             self._v_extractTimes(lines))))
 
-    @staticmethod
-    def clean_intervals(
-        intervals: list[tuple],
-        min_dur: float,
-        min_gap: float,
-    ) -> list[tuple[float, float]]:
-        """Clean up intervals by
-
-            1. ensuring intervals are greater than a minimum duration
-            2. ensuring intervals are separated by a minimum duration
-            3. concatenating overlapping intervals (https://stackoverflow.com/a/58976449/10120386)
-
-        Args:
-            intervals (list[tuple]): list of `(start, end)` times
-            min_dur (float, optional): minimum interval duration. Defaults to 0.1.
-            min_gap (float, optional): minimum separation between adjacent intervals. Defaults to 0.2.
-
-        Returns:
-            list[tuple[float, float]]: list of processed `(start, end)` times
-        """
-
-        arr = np.sort(np.array(intervals), axis=0)
-
-        # remove intervals with less than the minimum duration
-        durs = arr[:, 1] - arr[:, 0]
-        arr = arr[durs > min_dur]
-
-        # remove overlapping intervals and ensure gaps > min_gap
-        valid = np.zeros(arr.shape[0]+1, dtype=bool)
-        valid[[0, -1]] = 1
-        valid[1:-1] = arr[1:, 0] -\
-            np.maximum.accumulate(arr[:-1, 1]) >= min_gap
-
-        merged = np.vstack(
-            (
-                arr[valid[:-1], 0],
-                arr[valid[1:], 1]
-            )
-        ).T
-
-        return tuple(map(tuple, merged))
-
     def read_dialog(self, fp: Path) -> tuple[Path, list[str]]:
         """Extract dialog lines and `Path` to corresponding video for an input .ASS file
 
@@ -264,10 +294,10 @@ class ASSReader:
             tuple[Path, list[str]]: video `Path` and dialog lines
         """
         with open(fp, 'r', encoding='utf-8') as io:
-            lines = io.readlines()
+            self.lines = io.readlines()
 
         video_path = None
-        for i, line in enumerate(lines):
+        for i, line in enumerate(self.lines):
 
             if "Video File:" == line[:11]:
                 video_path = Path(line.split(': ')[1].strip())
@@ -277,9 +307,12 @@ class ASSReader:
                 if video_path is None:
                     raise ValueError(f"No video found, but dialog was found")
 
-                return video_path, lines[i:]
+                return video_path, self.lines[i:]
 
         raise ValueError(f"No dialogue found in {fp}")
+
+    def read_styles(self, ):
+        raise NotImplementedError()
 
     def read_intervals(
             self,
@@ -289,7 +322,7 @@ class ASSReader:
 
         intervals = self.get_intervals(lines)
         if clean:
-            return self.clean_intervals(intervals, min_dur, min_gap)
+            return clean_intervals(intervals, min_dur, min_gap)
         else:
             return intervals
 
@@ -302,4 +335,4 @@ class ASSReader:
         if check_overwrite(outpath):
             df.to_csv(outpath)
 
-        return df 
+        return df
