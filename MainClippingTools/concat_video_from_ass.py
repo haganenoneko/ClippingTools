@@ -124,7 +124,7 @@ def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> 
         str: `ffmpeg` command for concatenating dialog intervals
     """
     vp, dialog = read_ass_file(fp)
-    
+    print(vp)
     if (not vp.is_file()) or select_vp:
         root = tk.Tk()
         vp = fd.askopenfilename(
@@ -178,4 +178,4 @@ def main(select_vp=False, run_concat=True):
         )
 
 if __name__ == '__main__':
-    main(select_vp=True)
+    main(select_vp=False)

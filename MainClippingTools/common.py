@@ -44,6 +44,24 @@ def get_filenames(
     else:
         return Path(filenames[0])
 
+def get_save_filename(
+    title: str,
+    init_dir: Path=None,
+    defaultextension: str=".ass",
+    **kwargs
+) -> Path:
+
+    root = tk.Tk()
+
+    filename = fd.asksaveasfilename(
+        title=title, initialdir=init_dir, defaultextension=defaultextension,
+        **kwargs)
+    
+    root.destroy()
+
+    if filename is None: return 
+    return Path(filename)
+
 
 def run_powershell(cmd: str, stdout=PIPE, stderr=PIPE) -> Popen:
     return Popen(['powershell.exe', cmd], stdout=PIPE, stderr=PIPE)

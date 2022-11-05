@@ -306,8 +306,8 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "uruha_1st_bday"
+filename = "yakumo_icchi_sound"
 
-_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-30), splice=false, return_intervals=true)
+_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-35), splice=true, return_intervals=true)
 
 save_secs(secs, filename)

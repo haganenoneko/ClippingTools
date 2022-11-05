@@ -6,10 +6,10 @@ from subprocess import Popen
 import tkinter as tk
 from pathlib import Path
 import pandas as pd
-from typing import Union
+from typing import Union, Any
 
-from common import get_filenames, check_overwrite, run_powershell, get_video_resolution
-from ass_tools import ASSReader, INIT_DIR, VideoNotFoundError
+from common import get_filenames, check_overwrite, run_powershell, get_video_resolution, get_save_filename
+from ass_tools import ASSReader, ASSWriter, INIT_DIR, VideoNotFoundError, VIDEO_DIR
 
 ICONS_DIR = Path(
 	r"C:/Users/delbe/Videos/subtitles/thumbs/vtuber_pngs/circle_icons/vspo")
@@ -105,14 +105,16 @@ class ImageOverlay:
 			self,
 			icon_paths: dict[str, Path],
 			noIcons: list[str] = ['Translator'],
-			marginBottom: float = 200.,
+			marginTop: float = 50.,
+			marginBottom: float = 300.,
 			borderPadding: float = 10.,
-			iconPadding: float=10.,
-			minIconWidth: float = 150.,
-			maxIconWidth: float = 300.) -> None:
+			iconPadding: float = 50.,
+			minIconWidth: float = 140.,
+			maxIconWidth: float = 280.) -> None:
 
 		self.noIcons = noIcons
 		self.icon_paths = icon_paths
+		self.marginTop = marginTop
 		self.marginBottom = marginBottom
 
 		self.iconPadding = iconPadding
@@ -131,28 +133,32 @@ class ImageOverlay:
 			's': "[{i}:v]scale={y}:-1[{i}png]",
 			# overlay
 			'o': "[{src}][{i}png]overlay={x}:{y}[{i}ov]",
-			'ot': "[{src}][{pi}png]overlay={x}:{y}:enable='between(t,{tA},{tB})'[{oi}ov]"
+			# overlay with timecodes
+			'ot': "[{src}][{pi}png]overlay={x}:{y}:enable='between(t,{tA},{tB})'[{oi}ov]",
 		}
 
-		return fmts 
+		return fmts
 
 	def get_stylesWithIcons(
 			self, df: pd.DataFrame, noIcons: list[str]) -> list[str]:
 		"""Find styles in the ASS file that have icons
 
 		Args:
-				df (pd.DataFrame): dataframe of ASS dialog
-				noIcons (list[str]): style names that do not have icons
+										df (pd.DataFrame): dataframe of ASS dialog
+										noIcons (list[str]): style names that do not have icons
 
 		Returns:
-				list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
+										list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
 		"""
 
 		icon_names: list[str] = list(self.icon_paths.keys())
 		style_names = np.array([s.title() for s in df.Style.unique()])
 		hasIcon = np.isin(style_names, icon_names)
-		
-		stylesWithIcons = style_names[hasIcon].tolist()
+
+		stylesWithIcons: list[str] = [
+			s for s in style_names[hasIcon]
+			if s not in self.noIcons
+		]
 
 		for n in style_names[~hasIcon]:
 			if n in self.noIcons:
@@ -204,7 +210,23 @@ class ImageOverlay:
 
 		return
 
-	def get_icon_xy(
+	def get_overlaps(self, df: pd.DataFrame) -> list[int]:
+		# if there are `n` overlapping subtitles,
+		# use the `n+1`-th icon position
+
+		numOverlaps = np.zeros(df.shape[0], dtype=int)
+		hasIcon = df['hasIcon'] > 0
+		df_icon = df.loc[hasIcon, :]
+
+		numOverlaps[hasIcon] = [
+			(row.Start < df_icon['End'].iloc[:j]).sum()
+			for j, row in
+			enumerate(df_icon.itertuples())
+		]
+
+		return numOverlaps
+
+	def get_icon_coords(
 			self,
 			num_icons: int,
 			h_eff: float,
@@ -223,9 +245,20 @@ class ImageOverlay:
 			ndigits=1
 		) - self.iconPadding
 
+		if y_icon < self.minIconWidth:
+			print(
+				f"Too many icons ({num_icons}) to fit in effective height {h_eff} using mode <{mode}>")
+
 		xy_dict: dict[str, tuple[float, float]] = {}
 		for i, name in enumerate(self.stylesWithIcons):
-			y = (i+1)*y_icon - self.iconPadding/2
+
+			y = self.marginTop +\
+				self.iconPadding/2
+
+			if i > n1:
+				y += y_icon*(i-n1-1)
+			else:
+				y += y_icon*i
 
 			if 'right' in mode:
 				x = self.borderPadding\
@@ -235,7 +268,7 @@ class ImageOverlay:
 				x = self.borderPadding\
 					if i < n1\
 					else w - self.borderPadding -\
-						y_icon
+					y_icon
 
 			xy_dict[name] = (x, y)
 
@@ -247,6 +280,7 @@ class ImageOverlay:
 	def compute_positions(
 			self,
 			video_path: Path,
+			df: pd.DataFrame,
 			mode: str) -> dict[str, Union[str, float, tuple[float]]]:
 
 		width, height = get_video_resolution(
@@ -262,9 +296,15 @@ class ImageOverlay:
 		# 	space for main (center bottom) subtitles -\
 		#	top and bottom padding
 		# effective width = total width - left and right padding
-		height_eff = height - self.marginBottom - 2*self.borderPadding
+		height_eff = height -\
+			self.marginBottom -\
+			self.marginTop -\
+			2*self.borderPadding
 
-		num_icons = len(self.stylesWithIcons)
+		if 'speaker' in mode:
+			num_icons = max(df['NumOverlaps'].max(), 1)
+		else:
+			num_icons = len(self.stylesWithIcons)
 
 		y_icon = height_eff / num_icons
 		icon_xy: dict[str, tuple[float, float]] = {}
@@ -275,105 +315,156 @@ class ImageOverlay:
 		elif y_icon < self.minIconWidth:
 			if y_icon*2 < self.minIconWidth:
 				raise ValueError(
-					f"Too many icons to fit with minimum height {self.minIconWidth}.")
+					f"Too many icons ({num_icons}) to fit with minimum height {self.minIconWidth} in video with height {height}.")
 			else:
 				y_icon *= 2
 				mode = 'bilateral'
 				print("Can't fit all icons on one side. Setting `mode=bilateral`")
 
-		y_icon, icon_xy = self.get_icon_xy(
+		y_icon, icon_xy = self.get_icon_coords(
 			num_icons, height_eff, width, mode
 		)
 
 		return dict(y_icon=y_icon, icon_xy=icon_xy, mode=mode)
 
-	def get_speaker_overlays(
-			self,
-			df: pd.DataFrame,
-			coords: list[tuple[float, float]]) -> list[str]:
+	@staticmethod
+	def scale_split(ind: int, y: float, num: int, suffix='png') -> str:
+		in_ = f"[{ind}:v]"
+		cmd = f"scale={y}:-1,split={num}"
+		src = f"{ind}{suffix}"
+		out_ = ''.join([f"[{src}_{i}]" for i in range(1, num+1)])
+		return in_ + cmd + out_
 
-		overlays: list[str] = []
+	@staticmethod
+	def joinFilt(scale: list[str], overlay: list[str], lastInd: int) -> str:
 
-		# i = coutner for filter elements
-		i = 0 
+		scale, overlay = map(
+			lambda L: '; '.join(L),
+			[scale, overlay]
+		)
 
-		# j = counter for subtitle lines 
-		for j, row in enumerate(df.itertuples()):
-			if row.Style not in self.stylesWithIcons: continue 
+		return f"\"{scale}; {overlay}\" -map \"[{lastInd}ov]\""
 
-			n_overlap = (row.Start < df.iloc[1:j, 1]).sum()
-			x, y = coords[n_overlap]
-
-			overlays.append(
-				self.fmts['ot'].format(
-					src="0:v" if j == 0\
-						else f"{i}ov",
-					pi=row.StyleInds+1,
-					oi=i+1,
-					x=x, y=y,
-					tA=row.Start, tB=row.End
-				)
-			)
-
-			i += 1 
-
-		return f"{'; '.join(overlays)}\" -map \"[{i}ov]\""
-
-	def build_filter(
+	def speaker_filter_elements(
 			self,
 			df: pd.DataFrame,
 			y_icon: float,
-			icon_xy: dict[str, tuple[float, float]],
-			mode: str) -> str:
+			icon_xy: dict[str, tuple[float]]) -> tuple[list[str]]:
 
-		inputs, scales, overlays = [], [], []
+		# scale and then split each icon PNG into
+		# `num` streams, i.e. however many times
+		# the icon appears
+		scales_splits = []
+		for i, style in enumerate(self.stylesWithIcons):
+			num = (df['Style'] == style).sum()
+			scales_splits.append(
+				self.scale_split(i+1, y_icon, num,)
+			)
+
+		# i = counter for filter elements
+		i = 0
+
+		df_hasIcon = df.loc[df['hasIcon'] > 0, :]
+		coords = list(icon_xy.values())
+
+		OVRL = "overlay={x}:{y}:enable='between(t,{tA},{tB})'"
+		overlays: list[str] = []
+
+		# j = counter for subtitle lines
+		for j, row in enumerate(df_hasIcon.itertuples()):
+
+			# count number of times this style has been
+			# overlaid, i.e. index of cloned `scale`
+			if j == 0:
+				n_clone = 1
+			else:
+				n_clone = (
+					df_hasIcon.iloc[:j, :]['Style']
+					== row.Style
+				).sum() + 1
+
+			# icon coordinates
+			if 365 < row.Start < 370:
+				print(row, coords[row.NumOverlaps], sep='\n')
+
+			x, y = coords[row.NumOverlaps]
+
+			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
+			src2 = f"[{row.StyleInd+1}png_{n_clone}]"
+			ovrl = OVRL.format(
+				x=x, y=y, tA=row.Start, tB=row.End
+			) + f"[{i+1}ov]"
+
+			overlays.append(src1 + src2 + ovrl)
+			i += 1
+
+		return self.joinFilt(scales_splits, overlays, i)
+
+	def nonSpeaker_filter_elements(
+			self,
+			y_icon: float,
+			icon_xy: dict[str, tuple[float, float]]) -> tuple[list[str]]:
+
+		SCALE = "[{i}:v]scale={y}:-1[{i}png]"
+		OVERLAY = "[{src}][{i}png]overlay={x}:{y}[{i}ov]"
+
+		scales, overlays = [], []
+
 		for i, name in enumerate(self.stylesWithIcons):
-			inputs.append(
-				self.fmts['i'].format(p=self.icon_paths[name])
-			)
+			x, y = icon_xy[name]
+
 			scales.append(
-				self.fmts['s'].format(
-					i=i+1, y=y_icon)
+				SCALE.format(i=i+1, y=y_icon)
 			)
 
-			if not 'speaker' in mode:
-				x, y = icon_xy[name]
-				overlays.append(
-					self.fmts['o'].format(
-						src="0:v" if i == 0\
-							else f"{i+1}ov",
-						i=i+1, 
-						x=x, y=y
-					)
+			overlays.append(
+				OVERLAY.format(
+					src="0:v" if i == 0
+					else f"{i+1}ov",
+					i=i+1,
+					x=x, y=y
 				)
+			)
 
-		if 'speaker' in mode:
-			overlays = self.get_speaker_overlays(
-				df, list(icon_xy.values()))
-		else:
-			overlays = f"{'; '.join(overlays)}\" -map \"[{i+1}ov]\""
+		return self.joinFilt(scales, overlays, i+1)
 
-		filter_ = f"-filter_complex \"{'; '.join(scales)}; {overlays}"
-		return f"{' '.join(inputs)} {filter_}"
+	def build_inputs(self, vp: Path) -> str:
+		cmd = f"ffmpeg -i \"{vp}\""
+		for style in self.stylesWithIcons:
+			cmd += f" -i \"{self.icon_paths[style]}\" "
+
+		return cmd
 
 	def run_overlay(
 			self,
-			video_path: Path,
+			vp: Path,
 			df: pd.DataFrame,
 			y_icon: float,
 			icon_xy: dict[str, tuple[float, float]],
-			mode: str) -> None:
+			mode: str,
+			overwrite=False) -> None:
 
-		filter_ = self.build_filter(df, y_icon, icon_xy, mode)
+		inputs = self.build_inputs(vp)
 
-		outpath = video_path.parent /\
-			f"{video_path.stem}_overlay{video_path.suffix}"
+		if 'speaker' in mode:
+			filter_ = self.speaker_filter_elements(
+				df, y_icon, icon_xy)
+		else:
+			filter_ = self.nonSpeaker_filter_elements(
+				y_icon, icon_xy)
+
+		outpath = vp.parent /\
+			f"{vp.stem}_overlay{vp.suffix}"
 
 		if check_overwrite(outpath):
-			cmd = f"ffmpeg -i {video_path} {filter_} \"{outpath}\""
+			audio = "-map 0:a -c:a copy"
+
+			cmd = f"{inputs} -filter_complex {filter_} {audio}"
+			cmd += f" \"{outpath}\""
+
+			# print(cmd)
+			# run_powershell(cmd, stdout=None, stderr=None)
 			Popen(['powershell.exe', cmd])
-			print(cmd)
-			run_powershell(cmd)
 		else:
 			raise FileExistsError(outpath)
 
@@ -381,7 +472,7 @@ class ImageOverlay:
 
 		df_out = df.loc[:, ['Start', 'End', 'Style']].copy()
 
-		style_inds: dict[str, ind] = {
+		style_inds: dict[str, int] = {
 			style: i
 			for i, style in
 			enumerate(self.stylesWithIcons)
@@ -391,57 +482,194 @@ class ImageOverlay:
 			df_out[col] = pd.to_timedelta(df[col]).\
 				apply(lambda x: x.total_seconds())
 
-		df_out['StyleInds'] = df.Style.\
+		df_out['StyleInd'] = df.Style.\
 			apply(
-				lambda s: style_inds[s]
-				if s not in self.noIcons else -1 
-			)
+			lambda s: -1 if s in self.noIcons
+			else style_inds[s]
+		)
+
+		df_out['hasIcon'] = df['Style'].\
+			isin(self.stylesWithIcons)
+
+		df_out['NumOverlaps'] = self.get_overlaps(df_out)
 
 		return df_out
 
-	def parse_ass_dialog(self, fp: Path) -> pd.DataFrame:
+	def get_subtitle_coordinates(
+			self,
+			df_xy: pd.DataFrame,
+			y_icon: float,
+			onRight: list[bool]=None) -> np.ndarray:
+		"""Get coordinates for subtitles"""		
 
-		with open(fp, 'r', encoding='utf-8') as io:
-			lines = io.readlines()
+		coords = np.zeros((df_xy.shape[0], 2))
+		coords[:, 1] = (df_xy['y'] + y_icon/2) * (df_xy['x'] > 0)
+		coords[df_xy['x'] > 0, 0] += self.iconPadding + y_icon
+		
+		if onRight is None:
+			return coords
+		else:
+			coords[onRight, 0] = df_xy.\
+				loc[onRight, 'x'].iat[0] -\
+				self.iconPadding
+			return coords 
 
-		ind = next(i for i, line in enumerate(lines) if "Dialogue:" in line)
+	def add_RHS_styles(
+		self,
+		df1: pd.DataFrame, 
+		df_styles: pd.DataFrame,
+		onRight: list[bool],
+		margin_size: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+		"""Add right-center aligned text styles for subtitles on the right"""
+		
+		if onRight is None: 
+			return df1, df_styles
 
-		# Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-		lines = list(map(lambda x: x.strip().split(',', 9)[1:], lines[ind:]))
-
-		df = pd.DataFrame.from_records(
-			lines,
-			columns=['Start', 'End', 'Style', 'Name', 'MarginL',
-					 'MarginR', 'MarginV', 'Effect', 'Text'],
+		# names of styles that need a RHS duplicate
+		names = df1.loc[onRight, 'Style'].unique()
+		
+		# rename styles on the right
+		df1.loc[onRight, 'Style'].rename(
+			{n : f"{n}_RHS" for n in names},
+			inplace=True
 		)
 
-		return df
+		# select styles which need a RHS duplicate
+		needsRHS = df_styles['Name'].isin(names)
+
+		# RHS styles 
+		df_rhs = df_styles.loc[needsRHS, :].copy()
+		df_rhs['MarginL'] = margin_size
+
+		df_rhs['Name'] = df_rhs['Name'].\
+			apply(lambda n: f"{n}_RHS")
+
+		# change alignment
+		df_rhs['Alignment'] = 6 
+
+		df_styles = pd.concat(
+			[df_styles, df_rhs],
+			axis=0
+		)
+
+		return df1, df_styles
+
+	def adjust_ASS_subtitle_positions(
+			self,
+			df1: pd.DataFrame,
+			df2: pd.DataFrame,
+			df_styles: pd.DataFrame,
+			posInfo: dict[str, Any]) -> pd.DataFrame:
+
+		xy: list[tuple[float, float]] = list(
+			posInfo['icon_xy'].values()
+		)
+
+		# x, y coordinates for each subtitle 
+		df_xy = df2['NumOverlaps'].apply(
+			lambda n: xy[n]
+		).apply(lambda x: pd.Series(x))
+		df_xy.columns = ['x', 'y']
+		
+		# since coords[0] is a non-zero position, 
+		# zero all positions for subtitles without icons
+		hasIcon = df2['hasIcon'] > 0
+		df_xy.loc[~hasIcon, :] = (0, 0)
+
+		if (df_xy['x'] > self.borderPadding).any():
+			onRight = df_xy['x'] > self.borderPadding
+			
+		else:
+			onRight = None 
+
+		coords = self.get_subtitle_coordinates(
+			df_xy, posInfo['y_icon'], onRight=onRight
+		)
+
+		# every style with an icon is
+		# aligned 'center left', ie. 4 in Aegisub
+		nonZeroXY = coords[:, 0] > 0
+		linesToChange = nonZeroXY & hasIcon
+
+		df1.loc[linesToChange, 'Text'] =\
+			np.apply_along_axis(
+				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}",
+				arr=coords[linesToChange, :],
+				axis=1,
+			) + df1.loc[linesToChange, 'Text']
+		
+		# set alignment of styles with icons to center left
+		hasIcon = df_styles.Name.isin(self.stylesWithIcons)
+		df_styles.loc[hasIcon, 'Alignment'] = 4
+
+		margin_size = int(
+			self.borderPadding +\
+			posInfo['y_icon'] + self.iconPadding
+		)
+		df_styles.loc[hasIcon, 'MarginR'] = margin_size 
+
+		# any subtitles on the left are given a duplicate
+		# style that is aligned to the center right 
+		if onRight is None:
+			return df1, df_styles
+		else:
+			return self.add_RHS_styles(
+				df1, 
+				df_styles, 
+				onRight,
+				margin_size
+			)
 
 	def overlay(
 			self,
-			ass_path: Path,
+			df_dialog: pd.DataFrame,
+			df_styles: pd.DataFrame,
 			video_path: Path,
 			mode: str = 'left',
-			noIcons: list[str] = None) -> None:
-
-		df = self.parse_ass_dialog(ass_path)
+			noIcons: list[str] = None,
+			run_overlay=True,
+			write_ass=True) -> pd.DataFrame:
 
 		self.stylesWithIcons = self.get_stylesWithIcons(
-			df,
-			noIcons=noIcons if noIcons else self.noIcons
+			df_dialog,
+			noIcons=noIcons if noIcons
+			else self.noIcons
 		)
 
 		# processed dialog dataframe
-		df_pro = self.process_dialog(df)
+		df_pro = self.process_dialog(df_dialog)
 
 		# icon position information
-		posInfo = self.compute_positions(video_path, mode)
-
-		self.run_overlay(
+		posInfo = self.compute_positions(
 			video_path,
 			df_pro,
-			**posInfo
+			mode
 		)
+
+		if run_overlay:
+			self.run_overlay(video_path, df_pro, **posInfo)
+
+		if write_ass:
+			df_dialog, df_styles = self.adjust_ASS_subtitle_positions(
+				df_dialog, df_pro, df_styles, posInfo
+			)
+
+			outname = get_save_filename(
+				title="Save output ASS file after overlay.",
+				init_dir=INIT_DIR,
+				initialfile=f"{video_path.stem}_overlay",
+				filetypes=(("ASS files", "*.ass"),)
+			)
+
+			Writer = ASSWriter()
+			Writer.write(
+				outname.stem,
+				df_dialog=df_dialog,
+				df_styles=df_styles,
+				outdir=outname.parent,
+				vpath=video_path,
+				apath=video_path
+			)
 
 
 def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
@@ -460,12 +688,15 @@ def main(
 		names=VSPO_NAMES, icondir=ICONS_DIR,
 		noIcons: list[str] = ['Translator'],
 		dim_kw: dict[str, float] = dict(
-			marginBottom=200.,
+			marginTop=110.,
+			marginBottom=145.,
+			iconPadding=10.,
 			borderPadding=10.,
-			minIconWidth=150.,
-			maxIconWidth=300.
+			minIconWidth=100.,
+			maxIconWidth=250.
 		),
 		overlay_mode='left',
+		**kwargs
 ) -> None:
 
 	icon_paths = get_icon_paths(names, icondir)
@@ -481,24 +712,42 @@ def main(
 	Reader = ASSReader()
 
 	for fp in ass_files:
-		try:
-			vp, _ = Reader.read_dialog(fp)
-		except VideoNotFoundError:
+
+		Reader.read_file(fp)
+		vp, styles, dialog = Reader.get_ass_elements()
+		
+		if not vp.is_file():
 			vp = get_filenames(
 				f"Find video for {fp.stem}...",
 				filetypes=(('Video file', '*.mp4'),),
-				init_dir=INIT_DIR,
+				init_dir=VIDEO_DIR,
 				multiple=False
 			)
 
-		Overlay.overlay(fp, vp, mode=overlay_mode)
+		df_styles = Reader.parse_styles(styles)
+		df_dialog = Reader.parse_dialog(dialog)
+
+		Overlay.overlay(
+			df_dialog=df_dialog,
+			df_styles=df_styles,
+			video_path=vp,
+			mode=overlay_mode,
+			**kwargs
+		)
+
 
 if __name__ == '__main__':
-	main(overlay_mode='speaker')
+	main(
+		overlay_mode='speaker',
+		noIcons=['Translator', 'Yakumo'],
+		run_overlay=False,
+		write_ass=True,
+	)
 
 """
 TODO
 1. add `split` to the output stream for `scale` when using `speaker` mode for overlaying
 2. fix the positioning of icons, e.g. proper padding
-3. clean up code
-"""	
+3. adjust style margins as needed, and then write out modified ASS
+4. clean up code
+"""
