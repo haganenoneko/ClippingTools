@@ -1,18 +1,18 @@
-# ClipSpeechSegmenter
+# ClippingTools
 
 ## Introduction
 
-I started this project because, as a [clipper](https://www.youtube.com/channel/UCAUVpVeks_uHlE3J7w-i_6A) (link goes to my YouTube channel), I felt that there should be an easier way to set up timecodes for subtitles. Through my own clipping activities, I have access to about 50 videos' worth of manually labelled data, namely, who's speaking when and their start/end times. I also have what they're saying, but this is beyond the scope of this project.
+I started this project because, as a [clipper](https://www.youtube.com/channel/UCAUVpVeks_uHlE3J7w-i_6A) (link goes to my YouTube channel), I feel like there are parts of clipping that can be automated, and I'd like to try and cut away as much of this part of the work as I can. 
 
-The approach I will take is a neural network. The training data will be audio features extracted using the `librosa` Python library. I think that I will try implementing the neural network in Python first, and then Julia.
+I'm currently working on the following Python scripts:
 
-## Resources
+* Removing silence from videos (i.e. creating 'jump cuts' very easily). This is fairly complete. The only downside is that I use a Julia script to extract and process audio, since doing so in Numpy would be cumbersome. 
+* Cross-fading a pre-determined segment of the video at the beginning as a preview. This is kind of working, but also slow, so it needs more work.
+* Automatically overlaying profile icons on top of a video at times indicated in an `.ass` (Aegisub) file. 
 
-librosa features:
-<https://librosa.org/doc/main/feature.html>
+At the core of these scripts are two other technologies:
 
-a similar project for inspiration:
-<https://github.com/jurgenarias/Portfolio/blob/master/Voice%20Classification/Code/Speaker_Classifier/Voice_Speaker_Classifier_99.8%25.ipynb>
+* `ffmpeg`, which is the bread and butter for all audio, image, and video manipulation, input, and output. 
+* `Aegisub`, which is how subtitles are written and formatted. 
 
-`audiofile` documentation
-<https://audeering.github.io/audiofile/usage.html#write-a-file>
+I'm not sure what will come in the future, but I initially planned on training some form of voice classifier, but it seems a lot more difficult or impractical than I initially imagined it would be. Secondly, I'd like to finish the `CaptionDataScraper` sub-project I have in this repository, which is planned to basically provide a simple text template for video captions. Finally, I'd like to someday package these scripts into an easy web or desktop app, but that is probably many months in the future.
