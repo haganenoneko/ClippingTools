@@ -7,6 +7,7 @@ import re
 import pandas as pd
 from typing import Any
 from datetime import datetime
+from tkinter.filedialog import asksaveasfilename
 
 
 VIDEOID = re.compile("(?:watch\?v\=)(.*)")
@@ -58,5 +59,10 @@ if __name__ == '__main__':
     url = r"https://www.youtube.com/playlist?list=PLA7GVF9npsZw_qZlJho5u1yJB5C0Pnn2J"
 
     id = PLAYLISTID.search(url).group(1)
-    with open(f"./{id}.txt", 'w') as io:
+    outname = asksaveasfilename(
+        title="Save the filtered playlist",
+        defaultextension=".txt",
+        initialdir='./'
+    )
+    with open(outname, 'w') as io:
         io.write(main(url))

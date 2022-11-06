@@ -210,7 +210,7 @@ class ImageOverlay:
 
 		return
 
-	def get_overlaps(self, df: pd.DataFrame) -> list[int]:
+	def get_overlaps(self, df: pd.DataFrame, max_gap=0.1) -> list[int]:
 		# if there are `n` overlapping subtitles,
 		# use the `n+1`-th icon position
 
@@ -219,7 +219,9 @@ class ImageOverlay:
 		df_icon = df.loc[hasIcon, :]
 
 		numOverlaps[hasIcon] = [
-			(row.Start < df_icon['End'].iloc[:j]).sum()
+			(
+				(row.Start - df_icon['End'].iloc[:j]) < max_gap
+			).sum()
 			for j, row in
 			enumerate(df_icon.itertuples())
 		]
@@ -248,6 +250,8 @@ class ImageOverlay:
 		if y_icon < self.minIconWidth:
 			print(
 				f"Too many icons ({num_icons}) to fit in effective height {h_eff} using mode <{mode}>")
+		elif y_icon > self.maxIconWidth:
+			y_icon = self.maxIconWidth - self.iconPadding
 
 		xy_dict: dict[str, tuple[float, float]] = {}
 		for i, name in enumerate(self.stylesWithIcons):
@@ -255,20 +259,19 @@ class ImageOverlay:
 			y = self.marginTop +\
 				self.iconPadding/2
 
-			if i > n1:
-				y += y_icon*(i-n1-1)
+			if i > n1-1:
+				y += y_icon*(i-n1)
 			else:
 				y += y_icon*i
 
 			if 'right' in mode:
 				x = self.borderPadding\
-					if i > n1\
-					else w - self.borderPadding
+					if i > n1-1\
+					else w - self.borderPadding - y_icon
 			else:
-				x = self.borderPadding\
-					if i < n1\
-					else w - self.borderPadding -\
-					y_icon
+				x = w - self.borderPadding - y_icon\
+					if i > n1-1\
+					else self.borderPadding\
 
 			xy_dict[name] = (x, y)
 
@@ -299,27 +302,30 @@ class ImageOverlay:
 		height_eff = height -\
 			self.marginBottom -\
 			self.marginTop -\
-			2*self.borderPadding
+			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = max(df['NumOverlaps'].max(), 1)
+			num_icons = max(
+				df.sort_values('Start').\
+				loc[:, 'NumOverlaps'].max(), 1
+			)
 		else:
 			num_icons = len(self.stylesWithIcons)
 
-		y_icon = height_eff / num_icons
 		icon_xy: dict[str, tuple[float, float]] = {}
 
-		if y_icon > self.maxIconWidth:
-			y_icon = self.maxIconWidth
+		# y_icon = height_eff / num_icons
+		# if y_icon > self.maxIconWidth:
+		# 	y_icon = self.maxIconWidth
 
-		elif y_icon < self.minIconWidth:
-			if y_icon*2 < self.minIconWidth:
-				raise ValueError(
-					f"Too many icons ({num_icons}) to fit with minimum height {self.minIconWidth} in video with height {height}.")
-			else:
-				y_icon *= 2
-				mode = 'bilateral'
-				print("Can't fit all icons on one side. Setting `mode=bilateral`")
+		# elif y_icon < self.minIconWidth:
+		# 	if y_icon*2 < self.minIconWidth:
+		# 		raise ValueError(
+		# 			f"Too many icons ({num_icons}) to fit with minimum height {self.minIconWidth} in video with height {height}.")
+		# 	else:
+		# 		y_icon *= 2
+		# 		mode = 'bilateral'
+		# 		print("Can't fit all icons on one side. Setting `mode=bilateral`")
 
 		y_icon, icon_xy = self.get_icon_coords(
 			num_icons, height_eff, width, mode
@@ -343,13 +349,13 @@ class ImageOverlay:
 			[scale, overlay]
 		)
 
-		return f"\"{scale}; {overlay}\" -map \"[{lastInd}ov]\""
+		return f"{scale}; {overlay}"
 
 	def speaker_filter_elements(
 			self,
 			df: pd.DataFrame,
 			y_icon: float,
-			icon_xy: dict[str, tuple[float]]) -> tuple[list[str]]:
+			icon_xy: dict[str, tuple[float]]) -> tuple[str, str]:
 
 		# scale and then split each icon PNG into
 		# `num` streams, i.e. however many times
@@ -384,9 +390,6 @@ class ImageOverlay:
 				).sum() + 1
 
 			# icon coordinates
-			if 365 < row.Start < 370:
-				print(row, coords[row.NumOverlaps], sep='\n')
-
 			x, y = coords[row.NumOverlaps]
 
 			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
@@ -398,12 +401,15 @@ class ImageOverlay:
 			overlays.append(src1 + src2 + ovrl)
 			i += 1
 
-		return self.joinFilt(scales_splits, overlays, i)
+		# connect last output 
+		lastMap = f"-map \"[{i}ov]\""
+
+		return self.joinFilt(scales_splits, overlays, i), lastMap 
 
 	def nonSpeaker_filter_elements(
 			self,
 			y_icon: float,
-			icon_xy: dict[str, tuple[float, float]]) -> tuple[list[str]]:
+			icon_xy: dict[str, tuple[float, float]]) -> tuple[str, str]:
 
 		SCALE = "[{i}:v]scale={y}:-1[{i}png]"
 		OVERLAY = "[{src}][{i}png]overlay={x}:{y}[{i}ov]"
@@ -426,10 +432,11 @@ class ImageOverlay:
 				)
 			)
 
-		return self.joinFilt(scales, overlays, i+1)
+		lastMap = f"-map \"[{i+1}ov]\""
+		return self.joinFilt(scales, overlays), lastMap 
 
 	def build_inputs(self, vp: Path) -> str:
-		cmd = f"ffmpeg -i \"{vp}\""
+		cmd = f" -i \"{vp}\""
 		for style in self.stylesWithIcons:
 			cmd += f" -i \"{self.icon_paths[style]}\" "
 
@@ -447,23 +454,27 @@ class ImageOverlay:
 		inputs = self.build_inputs(vp)
 
 		if 'speaker' in mode:
-			filter_ = self.speaker_filter_elements(
+			filt, lastMap = self.speaker_filter_elements(
 				df, y_icon, icon_xy)
 		else:
-			filter_ = self.nonSpeaker_filter_elements(
+			filt, lastMap = self.nonSpeaker_filter_elements(
 				y_icon, icon_xy)
 
 		outpath = vp.parent /\
 			f"{vp.stem}_overlay{vp.suffix}"
 
 		if check_overwrite(outpath):
-			audio = "-map 0:a -c:a copy"
+			tmpfile = Path("./logs/tmp_overlay_params.txt")
 
-			cmd = f"{inputs} -filter_complex {filter_} {audio}"
-			cmd += f" \"{outpath}\""
+			with open(tmpfile, 'w') as tmp:
+				tmp.write(filt)
+						
+			out = f"{lastMap} -map 0:a -c:a copy \"{outpath}\""
 
-			# print(cmd)
-			# run_powershell(cmd, stdout=None, stderr=None)
+			paramsFile = str(tmpfile.absolute()).replace('/', r'//')
+			cmd = f"ffmpeg {inputs} -filter_complex_script {paramsFile} {out}"
+
+			print(cmd)
 			Popen(['powershell.exe', cmd])
 		else:
 			raise FileExistsError(outpath)
@@ -529,10 +540,7 @@ class ImageOverlay:
 		names = df1.loc[onRight, 'Style'].unique()
 		
 		# rename styles on the right
-		df1.loc[onRight, 'Style'].rename(
-			{n : f"{n}_RHS" for n in names},
-			inplace=True
-		)
+		df1.loc[onRight, 'Style'] = df1.loc[onRight, 'Style'] + "_RHS"
 
 		# select styles which need a RHS duplicate
 		needsRHS = df_styles['Name'].isin(names)
@@ -646,6 +654,8 @@ class ImageOverlay:
 			mode
 		)
 
+		print(posInfo)
+
 		if run_overlay:
 			self.run_overlay(video_path, df_pro, **posInfo)
 
@@ -739,8 +749,16 @@ def main(
 if __name__ == '__main__':
 	main(
 		overlay_mode='speaker',
-		noIcons=['Translator', 'Yakumo'],
-		run_overlay=False,
+		noIcons=['Default', 'Translator', 'Yakumo', 'Question'],
+		dim_kw = dict(
+			marginTop=110.,
+			marginBottom=145.,
+			iconPadding=10.,
+			borderPadding=10.,
+			minIconWidth=100.,
+			maxIconWidth=300.
+		),
+		run_overlay=True,
 		write_ass=True,
 	)
 
