@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Union
+from types import NoneType
 from datetime import timedelta
 
 from common import check_overwrite
@@ -336,6 +337,9 @@ class VideoNotFoundError(FileNotFoundError):
 class ASSReader:
 	def __init__(self) -> None:
 
+		self.lines: list[str] = None 
+		self.ass_path: Path = None 
+
 		# list[str] -> np.np.ndarray[float]
 		self._v_ts2secs = np.vectorize(
 			lambda x: self._ts2secs(x)
@@ -425,7 +429,7 @@ class ASSReader:
 
 		if timecodes_as_seconds:
 			for col in ['Start', 'End']:
-				df[col] = pd.to_datetime(df[col]).\
+				df[col] = pd.to_timedelta(df[col]).\
 					apply(lambda x: x.total_seconds())
 		return df
 
@@ -460,7 +464,7 @@ class ASSReader:
 
 		return df
 
-	def read_file(self, fp: Path):
+	def read_file(self, fp: Path, return_dataframes=False) -> Union[NoneType, tuple[pd.DataFrame]]:
 
 		if fp.is_file():
 			self.ass_path = fp
@@ -469,3 +473,57 @@ class ASSReader:
 
 		with open(fp, 'r', encoding='utf-8') as io:
 			self.lines = io.readlines()
+
+		if return_dataframes:
+			vp, styles, dialog = self.get_ass_elements()
+			return vp, self.parse_styles(styles), self.parse_dialog(dialog)
+		else:
+			return self.get_ass_elements()
+
+# ---------------------------------------------------------------------------- #
+#                               Process ASS file                               #
+# ---------------------------------------------------------------------------- #
+
+class ASSProcessor:
+	def __init__(self, reader: ASSReader=None, ass_path=None) -> None:
+		self.reader: ASSReader = None 
+		self.df_dialog: pd.DataFrame = None 
+		self.df_styles: pd.DataFrame = None 
+
+	def load_data(self, reader: ASSReader, ass_path: Path) -> None:
+		if reader.lines is None:
+			if ass_path is None:
+				raise ValueError(f"Must provided ASSReader with data loaded already or valid ASS file path")
+			else:
+				self.df_styles, self.df_dialog = reader.read_file(ass_path, return_dataframes=True)
+		else:
+			_, styles, dialog = reader.get_ass_elements()
+			self.df_styles = reader.parse_styles(styles)
+			self.df_dialog = reader.parse_dialog(dialog, timecodes_as_seconds=True)
+	
+	@staticmethod
+	def get_posIndices(df: pd.DataFrame) -> tuple[np.ndarray]:
+		times = df.loc[:, ['Start', 'End']].\
+			sort_values('Start').values  
+		
+		deltas = np.triu(
+			times[:,0] - times[:,1][:, np.newaxis], 
+			k=1
+		)
+		
+		numOverlaps = (deltas < 0).sum(axis=0)
+		
+		pos = np.zeros(times.shape[0], dtype=int)
+		inds = np.arange(times.shape[0], dtype=int)
+		
+		for i in range(1, times.shape[0]):
+			if numOverlaps[i] > 0:
+				pos[i] = np.setdiff1d(
+					inds[:i+1], 
+					pos[:i+1][deltas[:i+1, i] < 0]
+				).min()
+
+		return numOverlaps, pos 
+	
+	def process_dialog(self) -> pd.DataFrame:
+		return self.get_posIndices(self.df_dialog)

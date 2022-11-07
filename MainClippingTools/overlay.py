@@ -8,8 +8,8 @@ from pathlib import Path
 import pandas as pd
 from typing import Union, Any
 
-from common import get_filenames, check_overwrite, run_powershell, get_video_resolution, get_save_filename
-from ass_tools import ASSReader, ASSWriter, INIT_DIR, VideoNotFoundError, VIDEO_DIR
+from common import get_filenames, check_overwrite, get_video_resolution, get_save_filename
+from ass_tools import ASSReader, ASSWriter, INIT_DIR, VIDEO_DIR, ASSProcessor
 
 ICONS_DIR = Path(
 	r"C:/Users/delbe/Videos/subtitles/thumbs/vtuber_pngs/circle_icons/vspo")
@@ -305,28 +305,12 @@ class ImageOverlay:
 			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = max(
-				df.sort_values('Start').\
-				loc[:, 'NumOverlaps'].max(), 1
-			)
+			num_icons = 1 + df.sort_values('Start').\
+				loc[:, 'PositionIndex'].max()
 		else:
 			num_icons = len(self.stylesWithIcons)
 
 		icon_xy: dict[str, tuple[float, float]] = {}
-
-		# y_icon = height_eff / num_icons
-		# if y_icon > self.maxIconWidth:
-		# 	y_icon = self.maxIconWidth
-
-		# elif y_icon < self.minIconWidth:
-		# 	if y_icon*2 < self.minIconWidth:
-		# 		raise ValueError(
-		# 			f"Too many icons ({num_icons}) to fit with minimum height {self.minIconWidth} in video with height {height}.")
-		# 	else:
-		# 		y_icon *= 2
-		# 		mode = 'bilateral'
-		# 		print("Can't fit all icons on one side. Setting `mode=bilateral`")
-
 		y_icon, icon_xy = self.get_icon_coords(
 			num_icons, height_eff, width, mode
 		)
@@ -390,7 +374,7 @@ class ImageOverlay:
 				).sum() + 1
 
 			# icon coordinates
-			x, y = coords[row.NumOverlaps]
+			x, y = coords[row.PositionIndex]
 
 			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
 			src2 = f"[{row.StyleInd+1}png_{n_clone}]"
@@ -479,33 +463,6 @@ class ImageOverlay:
 		else:
 			raise FileExistsError(outpath)
 
-	def process_dialog(self, df: pd.DataFrame) -> pd.DataFrame:
-
-		df_out = df.loc[:, ['Start', 'End', 'Style']].copy()
-
-		style_inds: dict[str, int] = {
-			style: i
-			for i, style in
-			enumerate(self.stylesWithIcons)
-		}
-
-		for col in ['Start', 'End']:
-			df_out[col] = pd.to_timedelta(df[col]).\
-				apply(lambda x: x.total_seconds())
-
-		df_out['StyleInd'] = df.Style.\
-			apply(
-			lambda s: -1 if s in self.noIcons
-			else style_inds[s]
-		)
-
-		df_out['hasIcon'] = df['Style'].\
-			isin(self.stylesWithIcons)
-
-		df_out['NumOverlaps'] = self.get_overlaps(df_out)
-
-		return df_out
-
 	def get_subtitle_coordinates(
 			self,
 			df_xy: pd.DataFrame,
@@ -574,7 +531,7 @@ class ImageOverlay:
 		)
 
 		# x, y coordinates for each subtitle 
-		df_xy = df2['NumOverlaps'].apply(
+		df_xy = df2['PositionIndex'].apply(
 			lambda n: xy[n]
 		).apply(lambda x: pd.Series(x))
 		df_xy.columns = ['x', 'y']
@@ -627,6 +584,41 @@ class ImageOverlay:
 				onRight,
 				margin_size
 			)
+	
+	def process_dialog(self, df: pd.DataFrame) -> pd.DataFrame:
+
+		df_out = df.loc[:, ['Start', 'End', 'Style']].copy()
+
+		style_inds: dict[str, int] = {
+			style: i for i, style in
+			enumerate(self.stylesWithIcons)
+		}
+
+		for col in ['Start', 'End']:
+			df_out[col] = pd.to_timedelta(df[col]).\
+				apply(lambda x: x.total_seconds())
+
+		df_out['StyleInd'] = df.Style.str.title().\
+			apply(
+				lambda s: -1 if s in self.noIcons
+				else style_inds[s]
+			)
+
+		df_out['hasIcon'] = df['Style'].\
+			isin(self.stylesWithIcons)
+
+		
+		newcols = ['NumOverlaps', 'PositionIndex']
+		
+		df_out.loc[df_out.hasIcon, newcols] = np.vstack(
+			ASSProcessor().\
+			get_posIndices(df_out.loc[df_out.hasIcon, :])
+		).T
+
+		df_out.loc[:, newcols] = df_out.loc[:, newcols].\
+			fillna(0).astype('Int64')
+		
+		return df_out
 
 	def overlay(
 			self,
@@ -694,6 +686,7 @@ def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
 	return icons
 
 
+
 def main(
 		names=VSPO_NAMES, icondir=ICONS_DIR,
 		noIcons: list[str] = ['Translator'],
@@ -723,8 +716,8 @@ def main(
 
 	for fp in ass_files:
 
-		Reader.read_file(fp)
-		vp, styles, dialog = Reader.get_ass_elements()
+		vp, df_styles, df_dialog = Reader.read_file(
+			fp, return_dataframes=True)
 		
 		if not vp.is_file():
 			vp = get_filenames(
@@ -733,9 +726,6 @@ def main(
 				init_dir=VIDEO_DIR,
 				multiple=False
 			)
-
-		df_styles = Reader.parse_styles(styles)
-		df_dialog = Reader.parse_dialog(dialog)
 
 		Overlay.overlay(
 			df_dialog=df_dialog,
@@ -752,8 +742,8 @@ if __name__ == '__main__':
 		noIcons=['Default', 'Translator', 'Yakumo', 'Question'],
 		dim_kw = dict(
 			marginTop=110.,
-			marginBottom=145.,
-			iconPadding=10.,
+			marginBottom=135.,
+			iconPadding=15.,
 			borderPadding=10.,
 			minIconWidth=100.,
 			maxIconWidth=300.
