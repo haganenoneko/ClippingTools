@@ -178,4 +178,4 @@ def main(select_vp=False, run_concat=True):
         )
 
 if __name__ == '__main__':
-    main(select_vp=False)
+    main(select_vp=True)

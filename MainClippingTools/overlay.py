@@ -320,13 +320,19 @@ class ImageOverlay:
 	@staticmethod
 	def scale_split(ind: int, y: float, num: int, suffix='png') -> str:
 		in_ = f"[{ind}:v]"
-		cmd = f"scale={y}:-1,split={num}"
 		src = f"{ind}{suffix}"
-		out_ = ''.join([f"[{src}_{i}]" for i in range(1, num+1)])
+
+		if num > 0:
+			cmd = f"scale={y}:-1,split={num}"
+			out_ = ''.join([f"[{src}_{i}]" for i in range(1, num+1)])
+		else:
+			cmd = f"scale={y}:-1"
+			out_ = f"[{src}]"
+
 		return in_ + cmd + out_
 
 	@staticmethod
-	def joinFilt(scale: list[str], overlay: list[str], lastInd: int) -> str:
+	def joinFilt(scale: list[str], overlay: list[str]) -> str:
 
 		scale, overlay = map(
 			lambda L: '; '.join(L),
@@ -345,8 +351,13 @@ class ImageOverlay:
 		# `num` streams, i.e. however many times
 		# the icon appears
 		scales_splits = []
+
+		# number of times the icon appears throughout the video
+		num_styles: dict[str, int] = {}
+
 		for i, style in enumerate(self.stylesWithIcons):
 			num = (df['Style'] == style).sum()
+			num_styles[style] = num 
 			scales_splits.append(
 				self.scale_split(i+1, y_icon, num,)
 			)
@@ -377,7 +388,12 @@ class ImageOverlay:
 			x, y = coords[row.PositionIndex]
 
 			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
-			src2 = f"[{row.StyleInd+1}png_{n_clone}]"
+
+			if num_styles[row.Style] > 0:
+				src2 = f"[{row.StyleInd+1}png_{n_clone}]"
+			else:
+				src2 = f"[{row.StyleInd+1}png]"
+
 			ovrl = OVRL.format(
 				x=x, y=y, tA=row.Start, tB=row.End
 			) + f"[{i+1}ov]"
@@ -388,7 +404,7 @@ class ImageOverlay:
 		# connect last output 
 		lastMap = f"-map \"[{i}ov]\""
 
-		return self.joinFilt(scales_splits, overlays, i), lastMap 
+		return self.joinFilt(scales_splits, overlays), lastMap 
 
 	def nonSpeaker_filter_elements(
 			self,
@@ -604,20 +620,20 @@ class ImageOverlay:
 				else style_inds[s]
 			)
 
-		df_out['hasIcon'] = df['Style'].\
+		df_out['hasIcon'] = df['Style'].str.title().\
 			isin(self.stylesWithIcons)
 
-		
-		newcols = ['NumOverlaps', 'PositionIndex']
-		
+		newcols = ['NumOverlaps', 'PositionIndex']		
 		df_out.loc[df_out.hasIcon, newcols] = np.vstack(
 			ASSProcessor().\
-			get_posIndices(df_out.loc[df_out.hasIcon, :])
+			get_posIndices(
+				df_out.loc[df_out.hasIcon, :]
+			)
 		).T
 
 		df_out.loc[:, newcols] = df_out.loc[:, newcols].\
 			fillna(0).astype('Int64')
-		
+
 		return df_out
 
 	def overlay(
@@ -696,7 +712,7 @@ def main(
 			iconPadding=10.,
 			borderPadding=10.,
 			minIconWidth=100.,
-			maxIconWidth=250.
+			maxIconWidth=230.
 		),
 		overlay_mode='left',
 		**kwargs
@@ -739,23 +755,20 @@ def main(
 if __name__ == '__main__':
 	main(
 		overlay_mode='speaker',
-		noIcons=['Default', 'Translator', 'Yakumo', 'Question'],
+		noIcons=['Default', 'Translator', 'Toto', 'Chat'],
 		dim_kw = dict(
-			marginTop=110.,
-			marginBottom=135.,
-			iconPadding=15.,
+			marginTop=100.,
+			marginBottom=110.,
+			iconPadding=10.,
 			borderPadding=10.,
 			minIconWidth=100.,
-			maxIconWidth=300.
+			maxIconWidth=350.
 		),
 		run_overlay=True,
-		write_ass=True,
+		write_ass=False,
 	)
 
 """
 TODO
-1. add `split` to the output stream for `scale` when using `speaker` mode for overlaying
-2. fix the positioning of icons, e.g. proper padding
-3. adjust style margins as needed, and then write out modified ASS
-4. clean up code
+1. clean up code
 """

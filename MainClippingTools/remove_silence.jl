@@ -306,8 +306,18 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "yakumo_icchi_sound"
+filename = "toto_clothes__Fh5o5MzKze4"
 
-_, secs = remove_silence(filename; silence_duration=1., silence_threshold=dB_to_AR(-35), splice=true, return_intervals=true)
+_, secs = remove_silence(
+    filename; 
+    silence_duration=1., 
+    silence_threshold=dB_to_AR(-37), 
+    splice=true, return_intervals=true)
 
 save_secs(secs, filename)
+
+"""TODO 
+1. Add minimum length of non-silent interval 
+x = partition(arr, 2) |> collect 
+return x[x .> min_dur]
+"""
