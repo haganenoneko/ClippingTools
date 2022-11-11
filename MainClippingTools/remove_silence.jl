@@ -41,7 +41,12 @@ function open_video(filepath:: String):: Tuple{Matrix{Float32}, Int64}
 end 
 
 """Get start and end times of non-silent intervals"""
-function get_ranges(signal:: Vector{Float32}, rate:: Float64, threshold:: Float64, duration:: Float64):: Vector{Tuple{Int64, Int64}}
+function get_ranges(
+    signal:: Vector{Float32}, 
+    rate:: Float64, 
+    threshold:: Float64, 
+    duration:: Float64,
+    min_concat_interval:: Float64):: Vector{Tuple{Int64, Int64}}
     _, lens = StatsBase.rle(signal .<= threshold)
     
     chunks = [
@@ -65,7 +70,9 @@ function get_ranges(signal:: Vector{Float32}, rate:: Float64, threshold:: Float6
         push!(chunks, length(signal))
     end 
 
-    return partition(chunks, 2) |> collect 
+    intervals = partition(chunks, 2) |> collect 
+    mask = map(x -> (x[2] - x[1]) >= min_concat_interval, intervals)
+    return intervals[mask]
 end 
 
 """
@@ -167,7 +174,8 @@ function remove_silence(
     filename:: String; 
     splice:: Bool=true, 
     video_dir:: String=VIDEO_PATH, 
-    silence_duration:: Float64=1.0, 
+    silence_duration:: Float64=1.0,
+    min_concat_interval:: Float64=0.1, 
     silence_threshold:: Float64=1e-2, 
     return_intervals:: Bool=false)
     
@@ -175,7 +183,7 @@ function remove_silence(
     audio_data, audio_sr = open_video(filepath)
     signal = abs.(audio_data[1,:])
 
-    intervals = get_ranges(signal, Float64(audio_sr), silence_threshold, silence_duration)
+    intervals = get_ranges(signal, Float64(audio_sr), silence_threshold, silence_duration, min_concat_interval)
     if length(intervals) < 1 
         error("Empty intervals")
     end 
@@ -306,12 +314,12 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "toto_clothes__Fh5o5MzKze4"
+filename = "oreapo_sleepy__1612131092"
 
 _, secs = remove_silence(
     filename; 
-    silence_duration=1., 
-    silence_threshold=dB_to_AR(-37), 
+    silence_duration=0.9,
+    silence_threshold=dB_to_AR(-35), 
     splice=true, return_intervals=true)
 
 save_secs(secs, filename)

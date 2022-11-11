@@ -755,20 +755,21 @@ def main(
 if __name__ == '__main__':
 	main(
 		overlay_mode='speaker',
-		noIcons=['Default', 'Translator', 'Toto', 'Chat'],
+		noIcons=['Default', 'Translator', 'Giruru'],
 		dim_kw = dict(
-			marginTop=100.,
+			marginTop=115.,
 			marginBottom=110.,
-			iconPadding=10.,
+			iconPadding=30.,
 			borderPadding=10.,
 			minIconWidth=100.,
-			maxIconWidth=350.
+			maxIconWidth=220.
 		),
 		run_overlay=True,
-		write_ass=False,
+		write_ass=True,
 	)
 
 """
 TODO
-1. clean up code
+1. Grid positioning of icons, i.e. in different columns/rows, e.g. gridspec
+2. Specify icon sizes by ratios, instead of all being the same.
 """

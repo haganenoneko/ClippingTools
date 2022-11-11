@@ -118,4 +118,4 @@ def main(manual_order=True, **kwargs):
     crossfade(files, **kwargs)
     
 if __name__ == '__main__':
-    main(manual_order=False)
+    main(manual_order=True)
