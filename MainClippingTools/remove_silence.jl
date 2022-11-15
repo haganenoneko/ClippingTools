@@ -141,9 +141,15 @@ function splice_video_together(filepath:: String, intervals:: Vector{Tuple{Float
     pairs = join(create_splice_pair_str.(inds, intervals), "\n")
     concat_fn = *(["[$(i)v][$(i)a]" for i = inds]...) * 
         "concat=n=$(num):v=1:a=1[outv][outa]"
-    filter_ = "\"$(pairs * concat_fn)\""
+
+    tmp = "$(filepath)__filter.txt"
+    open("$(filepath)__filter.txt", "w") do io 
+        write(io, "$(pairs * concat_fn)")
+    end 
+
+    # tmp = replace(tmp, "/" => "//")
     map_fn = "-map [outv] -map [outa]"
-    cmd = `powershell.exe ffmpeg -hide_banner -i "$filepath.mp4" -filter_complex $filter_ $map_fn $output_name`
+    cmd = `powershell.exe ffmpeg -hide_banner -i "$filepath.mp4" -filter_complex_script $tmp $map_fn $output_name`
     
     run(cmd)
 
@@ -193,15 +199,15 @@ function remove_silence(
     @info "Total time removed: $(total/60) minutes ($total seconds)"
     @info "Number of streams: $(length(seconds))"
 
-    if length(seconds) > 300 
-        throw(
-            TooManyIntervalsException(
-                length(seconds), 
-                silence_threshold,
-                silence_duration
-            )
-        )
-    end 
+    # if length(seconds) > 300 
+    #     throw(
+    #         TooManyIntervalsException(
+    #             length(seconds), 
+    #             silence_threshold,
+    #             silence_duration
+    #         )
+    #     )
+    # end 
 
     if splice 
         # splice_video(filepath, seconds)
@@ -314,12 +320,12 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "oreapo_sleepy__1612131092"
+filename = "uruha_renai_domefight__z9cc8diJWgQ"
 
 _, secs = remove_silence(
     filename; 
-    silence_duration=0.9,
-    silence_threshold=dB_to_AR(-35), 
+    silence_duration=0.75,
+    silence_threshold=dB_to_AR(-29), 
     splice=true, return_intervals=true)
 
 save_secs(secs, filename)

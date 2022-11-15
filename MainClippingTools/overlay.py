@@ -754,15 +754,15 @@ def main(
 
 if __name__ == '__main__':
 	main(
-		overlay_mode='speaker',
-		noIcons=['Default', 'Translator', 'Giruru'],
+		overlay_mode='left',
+		noIcons=['Default', 'Translator', 'Ichinose', 'Chat'],
 		dim_kw = dict(
 			marginTop=115.,
 			marginBottom=110.,
 			iconPadding=30.,
 			borderPadding=10.,
 			minIconWidth=100.,
-			maxIconWidth=220.
+			maxIconWidth=245.
 		),
 		run_overlay=True,
 		write_ass=True,
