@@ -249,7 +249,8 @@ class ImageOverlay:
 
 		if y_icon < self.minIconWidth:
 			print(
-				f"Too many icons ({num_icons}) to fit in effective height {h_eff} using mode <{mode}>")
+				f"Too many icons ({num_icons}) to fit in effective height {h_eff} using mode <{mode}>"
+			)
 		elif y_icon > self.maxIconWidth:
 			y_icon = self.maxIconWidth - self.iconPadding
 
@@ -305,7 +306,7 @@ class ImageOverlay:
 			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = 1 + df.sort_values('Start').\
+			num_icons = df.sort_values('Start').\
 				loc[:, 'PositionIndex'].max()
 		else:
 			num_icons = len(self.stylesWithIcons)
@@ -314,7 +315,7 @@ class ImageOverlay:
 		y_icon, icon_xy = self.get_icon_coords(
 			num_icons, height_eff, width, mode
 		)
-
+		
 		return dict(y_icon=y_icon, icon_xy=icon_xy, mode=mode)
 
 	@staticmethod
@@ -412,7 +413,7 @@ class ImageOverlay:
 			icon_xy: dict[str, tuple[float, float]]) -> tuple[str, str]:
 
 		SCALE = "[{i}:v]scale={y}:-1[{i}png]"
-		OVERLAY = "[{src}][{i}png]overlay={x}:{y}[{i}ov]"
+		OVERLAY = "[{src}][{ind}png]overlay={x}:{y}[{ind}ov]"
 
 		scales, overlays = [], []
 
@@ -426,8 +427,8 @@ class ImageOverlay:
 			overlays.append(
 				OVERLAY.format(
 					src="0:v" if i == 0
-					else f"{i+1}ov",
-					i=i+1,
+						else f"{i}ov",
+					ind=i+1,
 					x=x, y=y
 				)
 			)
@@ -463,12 +464,12 @@ class ImageOverlay:
 		outpath = vp.parent /\
 			f"{vp.stem}_overlay{vp.suffix}"
 
-		if check_overwrite(outpath):
-			tmpfile = Path("./logs/tmp_overlay_params.txt")
+		tmpfile = Path("./logs/tmp_overlay_params.txt")
+		with open(tmpfile, 'w') as tmp:
+			tmp.write(filt)
+		print(f"Filter written to: {tmpfile}")
 
-			with open(tmpfile, 'w') as tmp:
-				tmp.write(filt)
-						
+		if check_overwrite(outpath):
 			out = f"{lastMap} -map 0:a -c:a copy \"{outpath}\""
 
 			paramsFile = str(tmpfile.absolute()).replace('/', r'//')
@@ -540,26 +541,36 @@ class ImageOverlay:
 			df1: pd.DataFrame,
 			df2: pd.DataFrame,
 			df_styles: pd.DataFrame,
+			mode: str, 
 			posInfo: dict[str, Any]) -> pd.DataFrame:
 
-		xy: list[tuple[float, float]] = list(
-			posInfo['icon_xy'].values()
-		)
 
-		# x, y coordinates for each subtitle 
-		df_xy = df2['PositionIndex'].apply(
-			lambda n: xy[n]
-		).apply(lambda x: pd.Series(x))
+		hasIcon = df2['hasIcon'] > 0
+
+		if 'speaker' in mode:
+			# x, y coordinates for each subtitle 
+			xy: list[tuple[float, float]] = list(
+				posInfo['icon_xy'].values()
+			)
+
+			df_xy = df2['PositionIndex'].apply(
+				lambda n: xy[n]
+			)
+		else:
+			xy: dict[str, tuple] = posInfo['icon_xy']
+			df_xy = df2['Style'].apply(
+				lambda k: xy[k] if k in xy else (0, 0)
+			)
+
+		df_xy = df_xy.apply(lambda x: pd.Series(x))
 		df_xy.columns = ['x', 'y']
-		
+			
 		# since coords[0] is a non-zero position, 
 		# zero all positions for subtitles without icons
-		hasIcon = df2['hasIcon'] > 0
 		df_xy.loc[~hasIcon, :] = (0, 0)
 
 		if (df_xy['x'] > self.borderPadding).any():
 			onRight = df_xy['x'] > self.borderPadding
-			
 		else:
 			onRight = None 
 
@@ -669,7 +680,7 @@ class ImageOverlay:
 
 		if write_ass:
 			df_dialog, df_styles = self.adjust_ASS_subtitle_positions(
-				df_dialog, df_pro, df_styles, posInfo
+				df_dialog, df_pro, df_styles, mode, posInfo
 			)
 
 			outname = get_save_filename(
@@ -755,16 +766,16 @@ def main(
 if __name__ == '__main__':
 	main(
 		overlay_mode='left',
-		noIcons=['Default', 'Translator', 'Ichinose', 'Chat'],
+		noIcons=['Default', 'Translator', 'Mimi', 'Chat'],
 		dim_kw = dict(
-			marginTop=115.,
-			marginBottom=110.,
-			iconPadding=30.,
-			borderPadding=10.,
-			minIconWidth=100.,
-			maxIconWidth=245.
+			marginTop=52.,
+			marginBottom=90.,
+			iconPadding=10.,
+			borderPadding=5.,
+			minIconWidth=150.,
+			maxIconWidth=270.
 		),
-		run_overlay=True,
+		run_overlay=False,
 		write_ass=True,
 	)
 

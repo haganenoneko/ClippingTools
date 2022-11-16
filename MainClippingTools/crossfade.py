@@ -60,6 +60,23 @@ def crossfade(
     xdur: float = 1.0,
     fadetype: str = "fade",
     afade_types: tuple[str, str] = ('exp', 'exp'),) -> str:
+    """Apply `xafde` to a list of video files
+
+    Args:
+        files (list[str]): list of video files
+        xdur (float, optional): crossfade duration. Defaults to 1.0.
+        fadetype (str, optional): video fade type. Defaults to "fade".
+        afade_types (tuple[str, str], optional): audio fade type. Defaults to ('exp', 'exp').
+
+    Returns:
+        str: ffmpeg command
+    
+    For more `fadetype` arguments, see:
+    https://trac.ffmpeg.org/wiki/Xfade
+
+    For more `afade_types`, see:
+    https://trac.ffmpeg.org/wiki/AfadeCurves
+    """
 
     ins = build_input_string(files)
     filter_ = build_filter(
@@ -118,4 +135,9 @@ def main(manual_order=True, **kwargs):
     crossfade(files, **kwargs)
     
 if __name__ == '__main__':
-    main(manual_order=True)
+    main(
+        manual_order=True, 
+        xdur=0.8, 
+        fadetype="fade",
+        afade_types=("dese", "dese")
+    )

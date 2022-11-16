@@ -320,12 +320,12 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "uruha_renai_domefight__z9cc8diJWgQ"
+filename = "qpi_ramune_1__crossfade"
 
 _, secs = remove_silence(
     filename; 
-    silence_duration=0.75,
-    silence_threshold=dB_to_AR(-29), 
+    silence_duration=0.9,
+    silence_threshold=dB_to_AR(-35), 
     splice=true, return_intervals=true)
 
 save_secs(secs, filename)
