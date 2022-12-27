@@ -264,10 +264,7 @@ class ImageOverlay:
 			y = self.marginTop +\
 				self.iconPadding/2
 
-			if i > n1-1:
-				y += y_icon*(i-n1)
-			else:
-				y += y_icon*i
+			y += y_icon * (i - (i > n1-1)*n1)
 
 			if 'right' in mode:
 				x = self.borderPadding\
@@ -310,8 +307,9 @@ class ImageOverlay:
 			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = df.sort_values('Start').\
-				loc[:, 'PositionIndex'].max()
+			num_icons = 1 + df.sort_values('Start').\
+				loc[:, 'PositionIndex'].\
+				max() 
 		else:
 			num_icons = len(self.stylesWithIcons)
 
@@ -593,7 +591,7 @@ class ImageOverlay:
 
 		df1.loc[linesToChange, 'Text'] =\
 			np.apply_along_axis(
-				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}",
+				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}}}",
 				arr=coords[linesToChange, :],
 				axis=1,
 			) + df1.loc[linesToChange, 'Text']
@@ -644,9 +642,9 @@ class ImageOverlay:
 			isin(self.stylesWithIcons)
 
 		newcols = ['NumOverlaps', 'PositionIndex']		
+
 		df_out.loc[df_out.hasIcon, newcols] = np.vstack(
-			ASSProcessor().\
-			get_posIndices(
+			ASSProcessor().get_posIndices(
 				df_out.loc[df_out.hasIcon, :]
 			)
 		).T
@@ -683,7 +681,6 @@ class ImageOverlay:
 		)
 
 		print(posInfo)
-	
 
 		if run_overlay:
 			self.run_overlay(video_path, df_pro, **posInfo)
@@ -775,8 +772,8 @@ def main(
 
 if __name__ == '__main__':
 	main(
-		overlay_mode='left',
-		noIcons=['Default', 'Translator', 'Hanabusa', 'DAISUKE', 'Hanabusa - LINESHAKE'],
+		overlay_mode='speaker-left',
+		noIcons=['Default', 'Translator', 'Hanabusa'],
 		dim_kw = dict(
 			marginTop=50.,
 			marginBottom=45.,
