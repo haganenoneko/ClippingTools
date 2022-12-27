@@ -15,7 +15,7 @@ HOMEDIR = Path.cwd()
 def check_overwrite(fp: Path) -> bool:
     if not fp.is_file():
         return True
-    ow = input(f"{fp} already exists. Overwrite? [y/n]").lower()
+    ow = input(f"\"{fp}\" already exists. Overwrite? [y/n]").lower()
     if ow != 'y':
         return False
     else:
@@ -88,7 +88,7 @@ def get_video_format(fp: Path) -> str:
 
 def get_video_codecs(fp: Path) -> str:
     """Get a list of codecs for a video"""
-    cmd = f"ffprobe -v error -hide_banner -of default=noprint_wrappers=0 -print_format flat  -select_streams v:0 -show_entries stream=codec_name,codec_long_name,profile,codec_tag_string {fp}"
+    cmd = f"ffprobe -v error -hide_banner -of default=noprint_wrappers=0 -print_format flat  -select_streams v:0 -show_entries stream=codec_name,codec_long_name,profile,codec_tag_string \"{fp}\""
     codecs = extract_ps_output(cmd)
     print(codecs)
     return codecs
@@ -96,15 +96,14 @@ def get_video_codecs(fp: Path) -> str:
 
 def get_video_duration(fp: Path) -> float:
     """Get duration of a video in seconds using powershell"""
-    cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {fp}"
+    cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{fp}\""
     dur = extract_ps_output(cmd)
     return float(dur)
 
 def get_video_resolution(fp: Path, as_ints=False) -> str:
     """Get resolution of a video `(width x height)`"""
-    cmd = f"ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 {fp}"
+    cmd = f"ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 \"{fp}\""
     res = extract_ps_output(cmd)
-
     if as_ints:
         return [int(x) for x in res.split('x')]
     else:

@@ -1,1 +1,1 @@
-[1:v]scale=132.0:-1[1png]; [2:v]scale=132.0:-1[2png]; [3:v]scale=132.0:-1[3png]; [4:v]scale=132.0:-1[4png]; [0:v][1png]overlay=5.0:57.0:enable='between(t,102,271)'[1ov]; [1ov][2png]overlay=5.0:189.0[2ov]; [2ov][3png]overlay=5.0:321.0[3ov]; [3ov][4png]overlay=5.0:453.0[4ov]
+[1:v]scale=136.2:-1[1png]; [2:v]scale=136.2:-1[2png]; [3:v]scale=136.2:-1[3png]; [4:v]scale=136.2:-1[4png]; [0:v][1png]overlay=10.0:57.5[1ov]; [1ov][2png]overlay=10.0:193.7[2ov]; [2ov][3png]overlay=10.0:329.9[3ov]; [3ov][4png]overlay=10.0:466.09999999999997[4ov]

@@ -24,7 +24,6 @@ DIALOG_PAT = re.compile(r"^(?:Dialogue\:\s\d\,)([\d\:\.]+),([\d\:\.]+).*$")
 # list[str] -> tuple[list[str], list[str]]
 parse_dialog = np.vectorize(lambda x: DIALOG_PAT.match(x).groups())
 
-
 def ts2secs(ts: str) -> float:
     hms, msec = ts.split('.')
     h, m, s = map(int, hms.split(':'))
@@ -50,11 +49,12 @@ def open_fd(initdir: Path = INITDIR) -> list[str]:
     return filenames
 
 
-def read_ass_file(fp: Path) -> tuple[Path, list[str]]:
+def read_ass_file(fp: Path, no_comment: bool) -> tuple[Path, list[str]]:
     """Extract dialog lines and `Path` to corresponding video for an input .ASS file
 
     Args:
         fp (Path): path to .ASS file
+        no_comment (bool): whether to remove Comment lines
 
     Raises:
         ValueError: Dialog found, but no video.
@@ -67,6 +67,7 @@ def read_ass_file(fp: Path) -> tuple[Path, list[str]]:
         lines = io.readlines()
 
     video_path = None
+    subtitles = None 
     for i, line in enumerate(lines):
 
         if "Video File:" == line[:11]:
@@ -77,9 +78,16 @@ def read_ass_file(fp: Path) -> tuple[Path, list[str]]:
             if video_path is None:
                 raise ValueError(f"No video found, but dialog was found")
 
-            return video_path, lines[i:]
-
-    raise ValueError(f"No dialogue found in {fp}")
+            subtitles = [
+                l for l in lines[i:] 
+                if "Dialogue:" == l[:9]
+            ]
+            break 
+    
+    if subtitles is None:
+        raise ValueError(f"No dialogue found in {fp}")
+    else:
+        return video_path, subtitles
 
 def _merge(starts: np.ndarray, ends: np.ndarray) -> tuple[float, float]:
     return starts.min(), ends.max()
@@ -123,7 +131,7 @@ def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> 
     Returns:
         str: `ffmpeg` command for concatenating dialog intervals
     """
-    vp, dialog = read_ass_file(fp)
+    vp, dialog = read_ass_file(fp, no_comment=True)
     print(vp)
     if (not vp.is_file()) or select_vp:
         root = tk.Tk()
@@ -135,8 +143,12 @@ def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> 
         root.destroy()
         vp = Path(vp)
 
-    raw_intervals = zip(*map(vts2secs, parse_dialog(dialog)))
-    intervals = clean_intervals(list(raw_intervals))
+    try:
+        raw_intervals = zip(*map(vts2secs, parse_dialog(dialog)))
+        intervals = clean_intervals(list(raw_intervals))
+    except Exception as e:
+        print(dialog)
+        raise e
 
     if confirm:
         print(f"The following intervals will be used.", intervals, sep='\n\n')

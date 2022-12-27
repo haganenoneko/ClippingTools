@@ -1,5 +1,7 @@
 from pathlib import Path 
-from subprocess import Popen, PIPE
+from typing import Union 
+from subprocess import Popen
+from secrets import choice 
 from common import get_filenames, HOMEDIR, get_video_duration, check_overwrite
 
 def get_files() -> list[Path]:
@@ -15,29 +17,41 @@ def build_input_string(files: list[str]) -> str:
     ins = ' '.join(f"-i \"{f}\"" for f in files)
     return f"ffmpeg {ins}"
 
+def get_fadetypes(fadetypes: Union[str, list[str]], num: int) -> list[str]:
+    
+    if isinstance(fadetypes, str):
+        return [fadetypes] * num 
+    
+    if len(fadetypes) < num:
+        fadetypes.extend(
+            [fadetypes[-1]] * (num - len(fadetypes))
+        )
+
+    return fadetypes
+
 def build_filter(
         files: list[str],
         xdur: float = 1.0,
-        fadetype: str = "fade",
-        afade_types: tuple[str, str] = ('exp', 'exp'),) -> str:
-
-    # curve types for audio cross fade
-    # examples: http://underpop.online.fr/f/ffmpeg/help/afade.htm.gz
-    # common types: tri (linear, default), exp, [q/h/e]sin, cub, squ, cbr, log
-    ac1, ac2 = afade_types
+        vfadetypes: Union[str, list[str]] = "fade",
+        afadetypes: Union[str, list[str]] = "exp") -> str:
+    """
+    curve types for audio cross fade
+    examples: http://underpop.online.fr/f/ffmpeg/help/afade.htm.gz
+    common types: tri (linear, default), exp, [q/h/e]sin, cub, squ, cbr, log
+    """
     
-    vfade = "[{i}:v]" +\
-        f"xfade=transition={fadetype}" +\
-        ":duration={d}:offset={off}" +\
-        "[xv{i}]"
-
-    afade = "[{i}:a]acrossfade=d={d}" +\
-        f":c1={ac1}:c2={ac2}" +\
-        "[xa{i}]"
+    vfade = "[{i}:v]xfade=transition={fade}:duration={d}:offset={off}[xv{i}]"
+    afade = "[{i}:a]acrossfade=d={d}:c1={fade}:c2={fade}[xa{i}]"
 
     prev_offset = 0. 
     vfades = [] 
     afades = [] 
+
+    # number of fades 
+    num = (len(files) - 1)
+    vfadetypes = get_fadetypes(vfadetypes, num)
+    afadetypes = get_fadetypes(afadetypes, num)
+
     for i, f in enumerate(files[:-1]):
         dur = get_video_duration(f)
         off = dur + prev_offset - xdur 
@@ -48,18 +62,28 @@ def build_filter(
         else:
             v_in, a_in = f"[xv{i}]", f"[xa{i}]"
 
-        vfades.append(v_in + vfade.format(d=xdur, off=off, i=i+1))
-        afades.append(a_in + afade.format(d=xdur, i=i+1))
+        vfades.append(
+            v_in +\
+            vfade.format(
+                d=xdur, off=off, i=i+1, fade=vfadetypes[i]
+            )
+        )
+
+        afades.append(
+            a_in +\
+            afade.format(d=xdur, i=i+1, fade=afadetypes[i])
+        )
 
     params = f"{'; '.join(vfades)}; {'; '.join(afades)}"
     lastMap = f"-map \"[xv{i+1}]\" -map \"[xa{i+1}]\""
+
     return f"-filter_complex \"{params}\" {lastMap}"
 
 def crossfade(
     files: list[str],
     xdur: float = 1.0,
-    fadetype: str = "fade",
-    afade_types: tuple[str, str] = ('exp', 'exp'),) -> str:
+    vfadetypes: Union[str, list[str]] = "fade",
+    afadetypes: Union[str, list[str]] = 'exp',) -> str:
     """Apply `xafde` to a list of video files
 
     Args:
@@ -82,8 +106,8 @@ def crossfade(
     filter_ = build_filter(
         files, 
         xdur=xdur, 
-        fadetype=fadetype, 
-        afade_types=afade_types
+        vfadetypes=vfadetypes, 
+        afadetypes=afadetypes
     )
 
     outpath = files[0].stem
@@ -92,7 +116,7 @@ def crossfade(
     outpath = files[0].parent / f"{outpath}_crossfade{files[0].suffix}"    
 
     if check_overwrite(outpath):
-        cmd = f"{ins} {filter_} {outpath}"
+        cmd = f"{ins} {filter_} \"{outpath}\""
     
     Popen(['powershell.exe', cmd])
     return cmd 
@@ -120,6 +144,19 @@ def sort_files(files: list[Path]) -> list[Path]:
     files = [f for _, f in order]
     return files 
 
+def random_vfade(n: int, ignore=None) -> list[str]:
+    FADETYPES = [
+        'fade', 'fadeblack', 'fadewhite', 'distance', 'wipeleft', 'wiperight', 'wipeup', 'wipedown', 'slideleft', 'slideright', 'slideup', 'slidedown', 'smoothleft', 'smoothright', 'smoothup', 'smoothdown', 'circleclose', 'circleopen', 'horzclose', 'horzopen', 'vertclose', 'vertopen', 'hlslice', 'hrslice', 'vuslice', 'vdslice', 'pixelize', 'hblur', 'zoomin'
+    ]
+
+    if ignore: 
+        FADETYPES = [f for f in FADETYPES if f not in ignore]
+        
+    vfadetypes = [choice(FADETYPES) for _ in range(n)]
+    print("Using the following vfadetypes:", vfadetypes, sep='\n')
+    
+    return vfadetypes
+
 def main(manual_order=True, **kwargs):
     files = get_files()
     
@@ -133,11 +170,11 @@ def main(manual_order=True, **kwargs):
     )
 
     crossfade(files, **kwargs)
-    
+
 if __name__ == '__main__':
     main(
-        manual_order=True, 
+        manual_order=False, 
         xdur=0.8, 
-        fadetype="fade",
-        afade_types=("dese", "dese")
+        vfadetypes=random_vfade(17),
+        afadetypes="dese"
     )

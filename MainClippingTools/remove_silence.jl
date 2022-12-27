@@ -320,15 +320,15 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "qpi_ramune_1__crossfade"
+filename = "ichinose_cringe/3y"
 
 _, secs = remove_silence(
     filename; 
-    silence_duration=0.9,
-    silence_threshold=dB_to_AR(-35), 
+    silence_duration=1.2,
+    silence_threshold=dB_to_AR(-32), 
     splice=true, return_intervals=true)
 
-save_secs(secs, filename)
+# save_secs(secs, filename)
 
 """TODO 
 1. Add minimum length of non-silent interval 

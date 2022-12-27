@@ -476,7 +476,9 @@ class ASSReader:
 
 		if return_dataframes:
 			vp, styles, dialog = self.get_ass_elements()
-			return vp, self.parse_styles(styles), self.parse_dialog(dialog)
+			return vp, \
+					self.parse_styles(styles),\
+					self.parse_dialog(dialog)
 		else:
 			return self.get_ass_elements()
 
