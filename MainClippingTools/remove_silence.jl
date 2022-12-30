@@ -4,6 +4,7 @@ using StatsBase
 using IterTools
 using Printf
 using DelimitedFiles
+using Plots 
 
 # import audiofile 
 audiofile = PyCall.pyimport("audiofile")
@@ -87,8 +88,8 @@ function get_ranges(
         # and end indices in the second column 
         mat = reinterpret(reshape, Int64, intervals[mask])'
         pad = round(Int, interval_padding*rate/2)
-        mat[2:end, 1] .+= pad 
-        mat[1:end-1, 2] .-= pad 
+        mat[2:end, 1] .-= pad 
+        mat[1:end-1, 2] .+= pad 
         return tuple.(eachcol(mat)...)
     else 
         return intervals[mask]
@@ -204,18 +205,28 @@ function remove_silence(
     min_concat_interval:: Float64=0.25, 
     silence_threshold:: Float64=1e-2, 
     interval_padding:: Float64=5e-2,
-    return_intervals:: Bool=false)
+    return_intervals:: Bool=false,
+    plot_signal=false)
     
     filepath = video_dir * filename 
     audio_data, audio_sr = open_video(filepath)
     signal = abs.(audio_data[1,:])
-
+    
+    if plot_signal == true 
+        p = Plots.plot(
+            (1:length(signal)) ./ audio_sr,
+            log.(signal .^ 2) .* 10,
+            serestype=:scatter
+        )
+        display(p)
+    end 
+    
     intervals = get_ranges(
         signal, 
         Float64(audio_sr), 
         silence_threshold, 
         silence_duration, 
-        min_concat_interval;
+        min_concat_interval*audio_sr;
         interval_padding=interval_padding
     )
 
@@ -324,7 +335,7 @@ function iterative_removal(
 end 
 
 dB_to_AR(dB::Number) = sqrt(10^(dB/10))
-
+AR_to_dB(AR::Float32) = log10(AR ^ 2) .* 10 
 
 function save_secs(
     seconds:: Vector, filename:: String; 
@@ -342,21 +353,74 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "hinano_bounenkai__2O626ip1xAA"
+"""
+Helps determine values for `remove_silence`. Example:
+```
+get_dbs(
+    filename, 
+    [
+        (50.053, 5.118), # silent 
+        (50.497, 2.559), # silent
+        (6.75, 0.33),   # soft 
+        (40.465, 0.409) # normal 
+    ];
+    rle_estimate_dB=-44.
+)
+```
+"""
+function get_dbs(
+    filename:: String, 
+    time_lengths:: Vector{Tuple{Float64, Float64}}; 
+    rle_estimate_dB:: Float64=nothing,
+    video_dir=VIDEO_PATH
+)::Vector{Vector{Float64}}
 
-_, secs = remove_silence(
+    filepath = video_dir * filename  
+    audio_data, audio_sr = open_video(filepath)
+    signal = abs.(audio_data[1,:])
+
+    dBs = Vector{Vector{Float64}}(
+        undef,
+        length(time_lengths) + 1
+    )
+
+    for i = 1:length(time_lengths)
+        s, ns = round.(Int, time_lengths[i] .* audio_sr)
+        x = AR_to_dB.(signal[s:s+ns])
+        
+        dBs[i+1] = quantile(x, [0.25, 0.5, 0.75])
+    end 
+
+    dBs[1] = quantile(signal, [0.25, 0.5, 0.75])
+
+    if rle_estimate_dB !== nothing 
+        _, lens = StatsBase.rle(signal .<= dB_to_AR(rle_estimate_dB))
+        flat = Iterators.flatten(((0,), cumsum(lens)))
+        chunks:: Vector{Int64} = partition(flat, 2, 1) |> Iters2Vec
+        intervals = partition(chunks, 2) |> collect 
+        mat = reinterpret(reshape, Int, intervals)
+        delta_t = (mat[:,2] .- mat[:,1]) ./ audio_sr 
+        @info quantile(delta_t, [0.05, 0.5, 0.95])
+    end 
+    return dBs 
+end 
+
+# ---------------------------------------------------------------------------- #
+
+filename = "hanabana_minecraft__1KWncbj4NEg"
+
+remove_silence(
     filename; 
     splice=true, 
-    silence_threshold=dB_to_AR(-30), 
-    silence_duration=0.8,
+    silence_threshold=dB_to_AR(-44), 
+    silence_duration=0.5,
+    min_concat_interval=1., 
     interval_padding=0.1,
-    return_intervals=true
-)
+    return_intervals=true,
+)[2]
 
 # save_secs(secs, filename)
 
 """TODO 
-1. Add minimum length of non-silent interval 
-x = partition(arr, 2) |> collect 
-return x[x .> min_dur]
+Visualize amplitude
 """

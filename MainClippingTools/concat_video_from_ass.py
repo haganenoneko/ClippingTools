@@ -75,9 +75,6 @@ def read_ass_file(fp: Path, no_comment: bool) -> tuple[Path, list[str]]:
             continue
 
         if "Dialogue:" == line[:9]:
-            if video_path is None:
-                raise ValueError(f"No video found, but dialog was found")
-
             subtitles = [
                 l for l in lines[i:] 
                 if "Dialogue:" == l[:9]
@@ -120,6 +117,17 @@ def get_filter(
 
     return num, f"{pairs} {suffix}"
 
+def select_video(fp: Path) -> Path:
+    root = tk.Tk()
+    vp = fd.askopenfilename(
+        initialdir=fp.parent, 
+        title="Select video file to concatenate.",
+        filetypes=(("MP4 files", "*.mp4"),)
+    )
+    root.destroy()
+    vp = Path(vp)
+    return vp 
+
 
 def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> str:
     """Parse .ASS file and construct command to concatenate intervals with subtitles, assuming all intervals are non-overlapping.
@@ -131,17 +139,14 @@ def parse_ass_file(fp: Path, select_vp=False, run_concat=True, confirm=True) -> 
     Returns:
         str: `ffmpeg` command for concatenating dialog intervals
     """
-    vp, dialog = read_ass_file(fp, no_comment=True)
-    print(vp)
-    if (not vp.is_file()) or select_vp:
-        root = tk.Tk()
-        vp = fd.askopenfilename(
-            initialdir=fp.parent, 
-            title="Select video file to concatenate.",
-            filetypes=(("MP4 files", "*.mp4"),)
-        )
-        root.destroy()
-        vp = Path(vp)
+    if select_vp:
+        vp = select_video(fp)
+        _, dialog = read_ass_file(fp, no_comment=True)
+    else:
+        vp, dialog = read_ass_file(fp, no_comment=True)
+    
+    if vp is None:
+        vp = select_video(fp)
 
     try:
         raw_intervals = zip(*map(vts2secs, parse_dialog(dialog)))
