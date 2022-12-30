@@ -145,6 +145,15 @@ def sort_files(files: list[Path]) -> list[Path]:
     return files 
 
 def random_vfade(n: int, ignore=None) -> list[str]:
+    """Choose `n` random video transitions.
+
+    Args:
+        n (int): number of transitions to choose
+        ignore (_type_, optional): names of transitions to not use. Defaults to None.
+
+    Returns:
+        list[str]: names of transitions
+    """
     FADETYPES = [
         'fade', 'fadeblack', 'fadewhite', 'distance', 'wipeleft', 'wiperight', 'wipeup', 'wipedown', 'slideleft', 'slideright', 'slideup', 'slidedown', 'smoothleft', 'smoothright', 'smoothup', 'smoothdown', 'circleclose', 'circleopen', 'horzclose', 'horzopen', 'vertclose', 'vertopen', 'hlslice', 'hrslice', 'vuslice', 'vdslice', 'pixelize', 'hblur', 'zoomin'
     ]
@@ -173,7 +182,7 @@ def main(manual_order=True, **kwargs):
 
 if __name__ == '__main__':
     main(
-        manual_order=False, 
+        manual_order=True, 
         xdur=0.8, 
         vfadetypes=random_vfade(17),
         afadetypes="dese"

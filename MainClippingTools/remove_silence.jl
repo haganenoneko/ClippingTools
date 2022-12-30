@@ -46,18 +46,26 @@ function get_ranges(
     rate:: Float64, 
     threshold:: Float64, 
     duration:: Float64,
-    min_concat_interval:: Float64):: Vector{Tuple{Int64, Int64}}
+    min_concat_interval:: Float64;
+    interval_padding:: Float64=0.):: Vector{Tuple{Int64, Int64}}
+
+    # lens[i] = length of i-th run with i-th value (_[i])
+    # we ignore the values here because they are all boolean (0 or 1)
     _, lens = StatsBase.rle(signal .<= threshold)
     
-    chunks = [
-        ((from + 1), to) for (from, to) in 
-        partition(
-            Iterators.flatten(
-                ((0,),cumsum(lens))
-            ), 2, 1
-        ) if (to - from) >= duration*rate 
+    # flatten lens 
+    flat = Iterators.flatten(
+        ((0,), cumsum(lens))
+    )
+
+    # vector of Int64s  
+    chunks::Vector{Int64} = [
+        ((from + 1), to) 
+        for (from, to) in partition(flat, 2, 1) 
+        if (to - from) >= duration*rate 
     ] |> Iters2Vec
     
+    # ensure that `chunks`` contains first and last indices 
     if chunks[1] == 1
         chunks = chunks[2:end]
     else 
@@ -70,9 +78,21 @@ function get_ranges(
         push!(chunks, length(signal))
     end 
 
+    
     intervals = partition(chunks, 2) |> collect 
     mask = map(x -> (x[2] - x[1]) >= min_concat_interval, intervals)
-    return intervals[mask]
+
+    if interval_padding > 0
+        # N x 2 array with start indices in the first column 
+        # and end indices in the second column 
+        mat = reinterpret(reshape, Int64, intervals[mask])'
+        pad = round(Int, interval_padding*rate/2)
+        mat[2:end, 1] .+= pad 
+        mat[1:end-1, 2] .-= pad 
+        return tuple.(eachcol(mat)...)
+    else 
+        return intervals[mask]
+    end 
 end 
 
 """
@@ -181,33 +201,35 @@ function remove_silence(
     splice:: Bool=true, 
     video_dir:: String=VIDEO_PATH, 
     silence_duration:: Float64=1.0,
-    min_concat_interval:: Float64=0.1, 
+    min_concat_interval:: Float64=0.25, 
     silence_threshold:: Float64=1e-2, 
+    interval_padding:: Float64=5e-2,
     return_intervals:: Bool=false)
     
     filepath = video_dir * filename 
     audio_data, audio_sr = open_video(filepath)
     signal = abs.(audio_data[1,:])
 
-    intervals = get_ranges(signal, Float64(audio_sr), silence_threshold, silence_duration, min_concat_interval)
+    intervals = get_ranges(
+        signal, 
+        Float64(audio_sr), 
+        silence_threshold, 
+        silence_duration, 
+        min_concat_interval;
+        interval_padding=interval_padding
+    )
+
     if length(intervals) < 1 
         error("Empty intervals")
     end 
-
+    
     seconds = map(x -> round.(x ./ audio_sr, digits=3), intervals)
-    total = (length(signal)/audio_sr) - sum(map(x -> x[2] - x[1], seconds))
-    @info "Total time removed: $(total/60) minutes ($total seconds)"
+    
+    total = (length(signal)/audio_sr) - 
+        sum(map(x -> x[2] - x[1], seconds))
+    
+    @info "Total time removed: $(total/60) min ($total sec)"
     @info "Number of streams: $(length(seconds))"
-
-    # if length(seconds) > 300 
-    #     throw(
-    #         TooManyIntervalsException(
-    #             length(seconds), 
-    #             silence_threshold,
-    #             silence_duration
-    #         )
-    #     )
-    # end 
 
     if splice 
         # splice_video(filepath, seconds)
@@ -320,13 +342,16 @@ end
 #                                  Test usage                                  #
 # ---------------------------------------------------------------------------- #
 
-filename = "ichinose_cringe/3y"
+filename = "hinano_bounenkai__2O626ip1xAA"
 
 _, secs = remove_silence(
     filename; 
-    silence_duration=1.2,
-    silence_threshold=dB_to_AR(-32), 
-    splice=true, return_intervals=true)
+    splice=true, 
+    silence_threshold=dB_to_AR(-30), 
+    silence_duration=0.8,
+    interval_padding=0.1,
+    return_intervals=true
+)
 
 # save_secs(secs, filename)
 
