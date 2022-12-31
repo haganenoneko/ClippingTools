@@ -36,7 +36,7 @@ class DropdownFileSelector:
 		self.createButton()
 		self.root.mainloop()
 
-	def setup(self, geom='500x550', title='Find VTuber PNGs'):
+	def setup(self, geom='500x500', title='Find VTuber PNGs'):
 		self.root = tk.Tk()
 		self.root.geometry(geom)
 		self.root.resizable(True, True)
@@ -152,11 +152,7 @@ class ImageOverlay:
 		"""
 
 		icon_names: list[str] = list(self.icon_paths.keys())
-		
-		style_names = np.array(
-			[s.title() for s in df.Style.unique()]
-		)
-
+		style_names = np.array([s.title() for s in df.Style.unique()])
 		hasIcon = np.isin(style_names, icon_names)
 
 		stylesWithIcons: list[str] = [
@@ -264,16 +260,19 @@ class ImageOverlay:
 			y = self.marginTop +\
 				self.iconPadding/2
 
-			y += y_icon * (i - (i > n1-1)*n1)
+			if i > n1-1:
+				y += y_icon*(i-n1)
+			else:
+				y += y_icon*i
 
 			if 'right' in mode:
 				x = self.borderPadding\
-					if i + 1 > n1\
+					if i > n1-1\
 					else w - self.borderPadding - y_icon
 			else:
 				x = w - self.borderPadding - y_icon\
-					if i + 1 > n1\
-					else self.borderPadding
+					if i > n1-1\
+					else self.borderPadding\
 
 			xy_dict[name] = (x, y)
 
@@ -307,9 +306,8 @@ class ImageOverlay:
 			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = 1 + df.sort_values('Start').\
-				loc[:, 'PositionIndex'].\
-				max() 
+			num_icons = df.sort_values('Start').\
+				loc[:, 'PositionIndex'].max()
 		else:
 			num_icons = len(self.stylesWithIcons)
 
@@ -370,7 +368,7 @@ class ImageOverlay:
 
 		df_hasIcon = df.loc[df['hasIcon'] > 0, :]
 		coords = list(icon_xy.values())
-		
+
 		OVRL = "overlay={x}:{y}:enable='between(t,{tA},{tB})'"
 		overlays: list[str] = []
 
@@ -387,12 +385,7 @@ class ImageOverlay:
 					== row.Style
 				).sum() + 1
 
-			# icon 
-			if row.PositionIndex >= len(coords):
-				raise IndexError(
-					f"Attempted to index {row.PositionIndex}-th coordinate in coordinates {coords} for style {row.Style}"
-				)
-
+			# icon coordinates
 			x, y = coords[row.PositionIndex]
 
 			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
@@ -477,7 +470,7 @@ class ImageOverlay:
 		print(f"Filter written to: {tmpfile}")
 
 		if check_overwrite(outpath):
-			out = f"{lastMap} -map 0:a -c:a aac -af aresample=async=1 \"{outpath}\""
+			out = f"{lastMap} -map 0:a -c:a copy \"{outpath}\""
 
 			paramsFile = str(tmpfile.absolute()).replace('/', r'//')
 			cmd = f"ffmpeg {inputs} -filter_complex_script {paramsFile} {out}"
@@ -551,6 +544,7 @@ class ImageOverlay:
 			mode: str, 
 			posInfo: dict[str, Any]) -> pd.DataFrame:
 
+
 		hasIcon = df2['hasIcon'] > 0
 
 		if 'speaker' in mode:
@@ -591,7 +585,7 @@ class ImageOverlay:
 
 		df1.loc[linesToChange, 'Text'] =\
 			np.apply_along_axis(
-				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}}}",
+				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}",
 				arr=coords[linesToChange, :],
 				axis=1,
 			) + df1.loc[linesToChange, 'Text']
@@ -620,8 +614,7 @@ class ImageOverlay:
 	
 	def process_dialog(self, df: pd.DataFrame) -> pd.DataFrame:
 
-		df_out = df.loc[:, ['Start', 'End']].copy()
-		df_out['Style'] = df['Style'].str.title()
+		df_out = df.loc[:, ['Start', 'End', 'Style']].copy()
 
 		style_inds: dict[str, int] = {
 			style: i for i, style in
@@ -642,9 +635,9 @@ class ImageOverlay:
 			isin(self.stylesWithIcons)
 
 		newcols = ['NumOverlaps', 'PositionIndex']		
-
 		df_out.loc[df_out.hasIcon, newcols] = np.vstack(
-			ASSProcessor().get_posIndices(
+			ASSProcessor().\
+			get_posIndices(
 				df_out.loc[df_out.hasIcon, :]
 			)
 		).T
@@ -663,7 +656,7 @@ class ImageOverlay:
 			noIcons: list[str] = None,
 			run_overlay=True,
 			write_ass=True) -> pd.DataFrame:
- 
+
 		self.stylesWithIcons = self.get_stylesWithIcons(
 			df_dialog,
 			noIcons=noIcons if noIcons
@@ -772,17 +765,17 @@ def main(
 
 if __name__ == '__main__':
 	main(
-		overlay_mode='speaker-left',
-		noIcons=['Default', 'Translator', 'Hanabusa'],
+		overlay_mode='left',
+		noIcons=['Default', 'Translator', 'Mimi', 'Chat'],
 		dim_kw = dict(
-			marginTop=50.,
-			marginBottom=45.,
-			iconPadding=15.,
-			borderPadding=10.,
-			minIconWidth=120.,
-			maxIconWidth=220.
+			marginTop=52.,
+			marginBottom=90.,
+			iconPadding=10.,
+			borderPadding=5.,
+			minIconWidth=150.,
+			maxIconWidth=270.
 		),
-		run_overlay=True,
+		run_overlay=False,
 		write_ass=True,
 	)
 

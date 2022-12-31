@@ -414,7 +414,7 @@ remove_silence(
     splice=true, 
     silence_threshold=dB_to_AR(-44), 
     silence_duration=0.5,
-    min_concat_interval=1., 
+    min_concat_interval=0.25, 
     interval_padding=0.1,
     return_intervals=true,
 )[2]
