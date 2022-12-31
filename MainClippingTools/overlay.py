@@ -306,8 +306,9 @@ class ImageOverlay:
 			2*self.borderPadding 
 
 		if 'speaker' in mode:
-			num_icons = df.sort_values('Start').\
-				loc[:, 'PositionIndex'].max()
+			num_icons = 1 + df.sort_values('Start').\
+				loc[:, 'PositionIndex'].\
+				max() 
 		else:
 			num_icons = len(self.stylesWithIcons)
 
