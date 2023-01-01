@@ -122,37 +122,25 @@ class ImageOverlay:
 		self.minIconWidth = minIconWidth
 		self.maxIconWidth = maxIconWidth
 
-		self.fmts = self.get_fmts()
 		self.stylesWithIcons: list[str] = None
-
-	def get_fmts(self):
-		fmts = {
-			# input
-			'i': "-i \"{p}\"",
-			# scaling
-			's': "[{i}:v]scale={y}:-1[{i}png]",
-			# overlay
-			'o': "[{src}][{i}png]overlay={x}:{y}[{i}ov]",
-			# overlay with timecodes
-			'ot': "[{src}][{pi}png]overlay={x}:{y}:enable='between(t,{tA},{tB})'[{oi}ov]",
-		}
-
-		return fmts
 
 	def get_stylesWithIcons(
 			self, df: pd.DataFrame, noIcons: list[str]) -> list[str]:
 		"""Find styles in the ASS file that have icons
 
 		Args:
-										df (pd.DataFrame): dataframe of ASS dialog
-										noIcons (list[str]): style names that do not have icons
+				df (pd.DataFrame): dataframe of ASS dialog
+				noIcons (list[str]): style names that do not have icons
 
 		Returns:
-										list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
+			list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
 		"""
 
-		icon_names: list[str] = list(self.icon_paths.keys())
+		icon_names: list[str] = [s.title() for s in self.icon_paths.keys()]
+		
 		style_names = np.array([s.title() for s in df.Style.unique()])
+		style_names.sort()
+
 		hasIcon = np.isin(style_names, icon_names)
 
 		stylesWithIcons: list[str] = [
@@ -303,12 +291,12 @@ class ImageOverlay:
 		height_eff = height -\
 			self.marginBottom -\
 			self.marginTop -\
-			2*self.borderPadding 
+			2*self.borderPadding
 
 		if 'speaker' in mode:
 			num_icons = 1 + df.sort_values('Start').\
 				loc[:, 'PositionIndex'].\
-				max() 
+				max()
 		else:
 			num_icons = len(self.stylesWithIcons)
 
@@ -316,7 +304,7 @@ class ImageOverlay:
 		y_icon, icon_xy = self.get_icon_coords(
 			num_icons, height_eff, width, mode
 		)
-		
+
 		return dict(y_icon=y_icon, icon_xy=icon_xy, mode=mode)
 
 	@staticmethod
@@ -359,7 +347,7 @@ class ImageOverlay:
 
 		for i, style in enumerate(self.stylesWithIcons):
 			num = (df['Style'] == style).sum()
-			num_styles[style] = num 
+			num_styles[style] = num
 			scales_splits.append(
 				self.scale_split(i+1, y_icon, num,)
 			)
@@ -403,10 +391,10 @@ class ImageOverlay:
 			overlays.append(src1 + src2 + ovrl)
 			i += 1
 
-		# connect last output 
+		# connect last output
 		lastMap = f"-map \"[{i}ov]\""
 
-		return self.joinFilt(scales_splits, overlays), lastMap 
+		return self.joinFilt(scales_splits, overlays), lastMap
 
 	def nonSpeaker_filter_elements(
 			self,
@@ -428,14 +416,14 @@ class ImageOverlay:
 			overlays.append(
 				OVERLAY.format(
 					src="0:v" if i == 0
-						else f"{i}ov",
+					else f"{i}ov",
 					ind=i+1,
 					x=x, y=y
 				)
 			)
 
 		lastMap = f"-map \"[{i+1}ov]\""
-		return self.joinFilt(scales, overlays), lastMap 
+		return self.joinFilt(scales, overlays), lastMap
 
 	def build_inputs(self, vp: Path) -> str:
 		cmd = f" -i \"{vp}\""
@@ -485,42 +473,54 @@ class ImageOverlay:
 			self,
 			df_xy: pd.DataFrame,
 			y_icon: float,
-			onRight: list[bool]=None) -> np.ndarray:
-		"""Get coordinates for subtitles"""		
+			hasIcon: np.ndarray,
+			onRight: list[bool] = None) -> np.ndarray:
+		"""Get coordinates for subtitles
+
+		Args:
+			df_xy (pd.DataFrame): `DataFrame` with columns for `x` and `y` coordinates
+			y_icon (float): height (and width) of icons
+			hasIcon (np.ndarray): Boolean mask of rows in `df_xy` with icons, i.e. `df_xy['x'] == 0`
+			onRight (list[bool], optional): Boolean mask of rows in `df_xy` that are located on the right. Defaults to None.
+
+		Returns:
+			np.ndarray: `N x 2` array of subtitle positions 
+		"""
 
 		coords = np.zeros((df_xy.shape[0], 2))
-		coords[:, 1] = (df_xy['y'] + y_icon/2) * (df_xy['x'] > 0)
-		coords[df_xy['x'] > 0, 0] += self.iconPadding + y_icon
-		
+
+		coords[:, 1] = (df_xy['y'] + y_icon/2) * hasIcon
+		coords[hasIcon, 0] += self.iconPadding + y_icon
+
 		if onRight is None:
 			return coords
 		else:
 			coords[onRight, 0] = df_xy.\
 				loc[onRight, 'x'].iat[0] -\
 				self.iconPadding
-			return coords 
+			return coords
 
 	def add_RHS_styles(
-		self,
-		df1: pd.DataFrame, 
-		df_styles: pd.DataFrame,
-		onRight: list[bool],
-		margin_size: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+			self,
+			df1: pd.DataFrame,
+			df_styles: pd.DataFrame,
+			onRight: list[bool],
+			margin_size: int) -> tuple[pd.DataFrame, pd.DataFrame]:
 		"""Add right-center aligned text styles for subtitles on the right"""
-		
-		if onRight is None: 
+
+		if onRight is None:
 			return df1, df_styles
 
 		# names of styles that need a RHS duplicate
 		names = df1.loc[onRight, 'Style'].unique()
-		
+
 		# rename styles on the right
 		df1.loc[onRight, 'Style'] = df1.loc[onRight, 'Style'] + "_RHS"
 
 		# select styles which need a RHS duplicate
 		needsRHS = df_styles['Name'].isin(names)
 
-		# RHS styles 
+		# RHS styles
 		df_rhs = df_styles.loc[needsRHS, :].copy()
 		df_rhs['MarginL'] = margin_size
 
@@ -528,7 +528,7 @@ class ImageOverlay:
 			apply(lambda n: f"{n}_RHS")
 
 		# change alignment
-		df_rhs['Alignment'] = 6 
+		df_rhs['Alignment'] = 6
 
 		df_styles = pd.concat(
 			[df_styles, df_rhs],
@@ -537,82 +537,101 @@ class ImageOverlay:
 
 		return df1, df_styles
 
+	@staticmethod
+	def _get_xy_coordinates(
+		df2: pd.DataFrame,
+		mode: str,
+		posInfo: dict[str, Any],
+		hasIcon: pd.Series) -> pd.DataFrame:
+		
+		if 'speaker' in mode:
+			# x, y coordinates for each subtitle
+			xy: list[tuple[float, float]] = list(
+				posInfo['icon_xy'].values()
+			)
+
+			df_xy = df2['PositionIndex'].\
+				apply(lambda n: xy[n])
+
+		else:
+			xy: dict[str, tuple] = posInfo['icon_xy']
+			df_xy = df2['Style'].apply(
+				lambda k: xy[k] 
+				if k in xy 
+				else (0, 0)
+			)
+
+		# epxand dataframe with 2-tuples as values into 
+		# N x 2 dataframe with separate x, y columns 
+		df_xy = df_xy.apply(lambda x: pd.Series(x))
+		df_xy.columns = ['x', 'y']
+
+		# zero all positions for subtitles without icons
+		df_xy.loc[~hasIcon, :] = (0, 0)
+
+		return df_xy 
+
 	def adjust_ASS_subtitle_positions(
 			self,
 			df1: pd.DataFrame,
 			df2: pd.DataFrame,
 			df_styles: pd.DataFrame,
-			mode: str, 
+			mode: str,
 			posInfo: dict[str, Any]) -> pd.DataFrame:
-
 
 		hasIcon = df2['hasIcon'] > 0
 
-		if 'speaker' in mode:
-			# x, y coordinates for each subtitle 
-			xy: list[tuple[float, float]] = list(
-				posInfo['icon_xy'].values()
-			)
-
-			df_xy = df2['PositionIndex'].apply(
-				lambda n: xy[n]
-			)
-		else:
-			xy: dict[str, tuple] = posInfo['icon_xy']
-			df_xy = df2['Style'].apply(
-				lambda k: xy[k] if k in xy else (0, 0)
-			)
-
-		df_xy = df_xy.apply(lambda x: pd.Series(x))
-		df_xy.columns = ['x', 'y']
-			
-		# since coords[0] is a non-zero position, 
-		# zero all positions for subtitles without icons
-		df_xy.loc[~hasIcon, :] = (0, 0)
-
+		df_xy = self._get_xy_coordinates(
+			df2, mode, posInfo, hasIcon
+		)
+		
+		# find subtitles that are located on the right 
 		if (df_xy['x'] > self.borderPadding).any():
 			onRight = df_xy['x'] > self.borderPadding
 		else:
-			onRight = None 
+			onRight = None
 
 		coords = self.get_subtitle_coordinates(
-			df_xy, posInfo['y_icon'], onRight=onRight
+			df_xy, 
+			posInfo['y_icon'], 
+			hasIcon.values, 
+			onRight=onRight
 		)
 
 		# every style with an icon is
 		# aligned 'center left', ie. 4 in Aegisub
-		nonZeroXY = coords[:, 0] > 0
-		linesToChange = nonZeroXY & hasIcon
+		_pos = "{{\pos({x},{y})}} "
 
-		df1.loc[linesToChange, 'Text'] =\
-			np.apply_along_axis(
-				lambda tup: f"{{\pos({tup[0]},{tup[1]})}}",
-				arr=coords[linesToChange, :],
-				axis=1,
-			) + df1.loc[linesToChange, 'Text']
-		
+		df1.loc[hasIcon, 'Text'] = np.apply_along_axis(
+			lambda tup: _pos.format(x=tup[0], y=tup[1]),
+			arr=coords[hasIcon, :],
+			axis=1,
+		) + df1.loc[hasIcon, 'Text'].str.strip()
+
 		# set alignment of styles with icons to center left
 		hasIcon = df_styles.Name.isin(self.stylesWithIcons)
 		df_styles.loc[hasIcon, 'Alignment'] = 4
 
 		margin_size = int(
-			self.borderPadding +\
-			posInfo['y_icon'] + self.iconPadding
+			self.borderPadding +
+			posInfo['y_icon'] + 
+			self.iconPadding
 		)
-		df_styles.loc[hasIcon, 'MarginR'] = margin_size 
+
+		df_styles.loc[hasIcon, 'MarginR'] = margin_size
 
 		# any subtitles on the left are given a duplicate
-		# style that is aligned to the center right 
+		# style that is aligned to the center right
 		if onRight is None:
 			return df1, df_styles
 		else:
 			return self.add_RHS_styles(
-				df1, 
-				df_styles, 
+				df1,
+				df_styles,
 				onRight,
 				margin_size
 			)
-	
+
 	def process_dialog(self, df: pd.DataFrame) -> pd.DataFrame:
 
 		df_out = df.loc[:, ['Start', 'End', 'Style']].copy()
@@ -628,16 +647,16 @@ class ImageOverlay:
 
 		df_out['StyleInd'] = df.Style.str.title().\
 			apply(
-				lambda s: -1 if s in self.noIcons
-				else style_inds[s]
-			)
+			lambda s: -1 if s in self.noIcons
+			else style_inds[s]
+		)
 
 		df_out['hasIcon'] = df['Style'].str.title().\
 			isin(self.stylesWithIcons)
 
-		newcols = ['NumOverlaps', 'PositionIndex']		
+		newcols = ['NumOverlaps', 'PositionIndex']
 		df_out.loc[df_out.hasIcon, newcols] = np.vstack(
-			ASSProcessor().\
+			ASSProcessor().
 			get_posIndices(
 				df_out.loc[df_out.hasIcon, :]
 			)
@@ -714,20 +733,19 @@ def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
 	return icons
 
 
-
 def main(
-		names=VSPO_NAMES, icondir=ICONS_DIR,
-		noIcons: list[str] = ['Translator'],
-		dim_kw: dict[str, float] = dict(
-			marginTop=110.,
-			marginBottom=145.,
-			iconPadding=10.,
-			borderPadding=10.,
-			minIconWidth=100.,
-			maxIconWidth=230.
-		),
-		overlay_mode='left',
-		**kwargs
+	names=VSPO_NAMES, icondir=ICONS_DIR,
+	noIcons: list[str] = ['Translator'],
+	dim_kw: dict[str, float] = dict(
+		marginTop=110.,
+		marginBottom=145.,
+		iconPadding=10.,
+		borderPadding=10.,
+		minIconWidth=100.,
+		maxIconWidth=230.
+	),
+	overlay_mode='left',
+	**kwargs
 ) -> None:
 
 	icon_paths = get_icon_paths(names, icondir)
@@ -746,7 +764,7 @@ def main(
 
 		vp, df_styles, df_dialog = Reader.read_file(
 			fp, return_dataframes=True)
-		
+
 		if not vp.is_file():
 			vp = get_filenames(
 				f"Find video for {fp.stem}...",
@@ -766,17 +784,17 @@ def main(
 
 if __name__ == '__main__':
 	main(
-		overlay_mode='left',
-		noIcons=['Default', 'Translator', 'Mimi', 'Chat'],
-		dim_kw = dict(
-			marginTop=52.,
-			marginBottom=90.,
+		overlay_mode='left-bilateral',
+		noIcons=['Default', 'Translator', 'Chat'],
+		dim_kw=dict(
+			marginTop=50.,
+			marginBottom=50.,
 			iconPadding=10.,
 			borderPadding=5.,
 			minIconWidth=150.,
-			maxIconWidth=270.
+			maxIconWidth=300.
 		),
-		run_overlay=False,
+		run_overlay=True,
 		write_ass=True,
 	)
 
