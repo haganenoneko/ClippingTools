@@ -1,8 +1,8 @@
-from ass_tools import ASSWriter, parse_interval_file, clean_intervals
+from ass_tools import ASSWriter, parse_interval_file
 from common import get_filenames
 from pathlib import Path 
 
-SUBS_DIR = Path(r"C:/Users/delbe/Videos/subtitles/full_raw/removesilence_timecodes")
+SUBS_DIR = Path('..\\..\\..\\..\\Videos\\subtitles\\full_raw\\removesilence_timecodes')
 
 get_video = lambda: get_filenames("Select video file.", (("Video files", "*.mp4"),("All files", "*.*"),),)
 get_audio = lambda: get_filenames("Select audio file.", (("Audio files", "*.m4a"),("All files", "*.*"),))

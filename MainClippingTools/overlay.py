@@ -12,7 +12,8 @@ from common import get_filenames, check_overwrite, get_video_resolution, get_sav
 from ass_tools import ASSReader, ASSWriter, INIT_DIR, VIDEO_DIR, ASSProcessor
 
 ICONS_DIR = Path(
-	r"C:/Users/delbe/Videos/subtitles/thumbs/vtuber_pngs/circle_icons/vspo")
+	r"../../../../Videos/subtitles/thumbs/vtuber_pngs/circle_icons/vspo"
+)
 
 VSPO_NAMES = [
 	'Asumi', 'Kaminari', 'Kisaragi', 'Mimi',
@@ -755,7 +756,8 @@ def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
 
 
 def main(
-	names=VSPO_NAMES, icondir=ICONS_DIR,
+	names=VSPO_NAMES, 
+	icondir=ICONS_DIR,
 	noIcons: list[str] = ['Translator'],
 	dim_kw: dict[str, float] = dict(
 		marginTop=110.,
@@ -805,6 +807,7 @@ def main(
 
 if __name__ == '__main__':
 	main(
+		icondir=ICONS_DIR,
 		overlay_mode='left-bilateral',
 		noIcons=['Default', 'Translator', 'Chat'],
 		dim_kw=dict(

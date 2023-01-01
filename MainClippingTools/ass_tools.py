@@ -9,13 +9,12 @@ from datetime import timedelta
 from common import check_overwrite
 
 # directory containing subtitle files
-INIT_DIR = Path("C:/Users/delbe/Videos/subtitles/subs")
+INIT_DIR = Path('..\\..\\..\\..\\Videos\\subtitles\\subs')
 
 # directory for video files
-VIDEO_DIR = Path(r"C:/Users/delbe/Videos/subtitles/full_raw")
+VIDEO_DIR = Path('..\\..\\..\\..\\Videos\\subtitles\\full_raw')
 
 HOME_DIR = Path.cwd() / "MainClippingTools"
-
 ASS_HEADER_PATH = HOME_DIR / "assets/ASS_header.txt"
 
 # ---------------------------------------------------------------------------- #

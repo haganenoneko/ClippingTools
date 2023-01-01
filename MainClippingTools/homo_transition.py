@@ -2,7 +2,7 @@ from pathlib import Path
 from common import get_filename, run_powershell, get_video_duration, get_video_format
 
 # path to video files
-VIDEODIR = Path(r"C:/Users/delbe/Videos/subtitles/full_raw/")
+VIDEODIR = Path('..\\..\\..\\..\\Videos\\subtitles\\full_raw')
 
 
 def tup2secs(tup: tuple[int]) -> float:

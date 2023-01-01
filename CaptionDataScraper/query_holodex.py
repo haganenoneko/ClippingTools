@@ -13,10 +13,11 @@ from pandas import DataFrame
 
 BASE_URL = r"https://holodex.net/{suffix}"
 MSEDGE_DRIVER = "C:/Program Files (x86)/Microsoft/Edge/Application/msedgedriver.exe"
-MSEDGE_USERDATA = r"C:/Users/delbe/AppData/Local/Microsoft/Edge/User Data"
+MSEDGE_USERDATA = '..\\..\\..\\..\\AppData\\Local\\Microsoft\\Edge\\User Data'
 
 vspo_search = BASE_URL.format(
     suffix="search?q=type,value,text%0Aorg,VSpo,VSpo&page={pagenum}&type=clip")
+
 hdex_settings = BASE_URL.format(suffix="settings")
 
 # -------------------- Open a selenium-controlled browser -------------------- #

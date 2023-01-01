@@ -10,7 +10,7 @@ using Plots
 audiofile = PyCall.pyimport("audiofile")
 
 # constants 
-VIDEO_PATH = "C:/Users/delbe/Videos/subtitles/full_raw/"
+VIDEO_PATH = "../../../../Videos/subtitles/full_raw"
 SECS_PATH = VIDEO_PATH * "removesilence_timecodes/"
 
 """

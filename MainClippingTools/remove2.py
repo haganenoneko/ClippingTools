@@ -2,7 +2,7 @@ from common import get_filenames, run_powershell
 from pathlib import Path 
 from numpy import vectorize 
 
-VIDEO_PATH = "C:/Users/delbe/Videos/subtitles/full_raw/"
+VIDEO_PATH = "..\\..\\..\\..\\Videos\\subtitles\\full_raw"
 SECS_PATH = VIDEO_PATH + "removesilence_timecodes/"
 
 def create_splice_pair(i: int, j: int, times: tuple[float, float]) -> str:
