@@ -125,7 +125,10 @@ class ImageOverlay:
 		self.stylesWithIcons: list[str] = None
 
 	def get_stylesWithIcons(
-			self, df: pd.DataFrame, noIcons: list[str]) -> list[str]:
+			self, 
+			df: pd.DataFrame, 
+			noIcons: list[str],
+			icon_order: dict[str, int]=None) -> list[str]:
 		"""Find styles in the ASS file that have icons
 
 		Args:
@@ -138,8 +141,26 @@ class ImageOverlay:
 
 		icon_names: list[str] = [s.title() for s in self.icon_paths.keys()]
 		
+		# since we create `stylesWithIcons` by iterating over `style_names`, 
+		# we need to sort `style_names` so that, if the same (sub)sets of 
+		# styles are used in multiple `.ass` files, the corresponding 
+		# icons are placed in the same positions (alphabetical), rather 
+		# than the order in which they first appear in each `.ass` file 
 		style_names = np.array([s.title() for s in df.Style.unique()])
+
+		# `icon_order` provides option to manually specify relative 
+		# icon positions ('order'), but the default is alphabetical, 
+		# based on their corresponding style names 
 		style_names.sort()
+
+		if icon_order:
+			raise NotImplementedError("Manual icon order not supported yet.")
+			style_names = np.array(
+				sorted(
+					style_names, 
+					key=lambda s: icon_order[s]
+				)
+			)
 
 		hasIcon = np.isin(style_names, icon_names)
 
