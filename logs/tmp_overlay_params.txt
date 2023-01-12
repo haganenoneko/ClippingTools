@@ -1,1 +1,1 @@
-[1:v]scale=193.3:-1[1png]; [2:v]scale=193.3:-1[2png]; [3:v]scale=193.3:-1[3png]; [4:v]scale=193.3:-1[4png]; [5:v]scale=193.3:-1[5png]; [0:v][1png]overlay=5.0:55.0[1ov]; [1ov][2png]overlay=5.0:248.3[2ov]; [2ov][3png]overlay=1081.7:55.0[3ov]; [3ov][4png]overlay=1081.7:248.3[4ov]; [4ov][5png]overlay=1081.7:441.6[5ov]
+[1:v]scale=285.0:-1[1png]; [2:v]scale=285.0:-1[2png]; [0:v][1png]overlay=15.0:55.0[1ov]; [1ov][2png]overlay=15.0:340.0[2ov]

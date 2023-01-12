@@ -808,13 +808,13 @@ def main(
 if __name__ == '__main__':
 	main(
 		icondir=ICONS_DIR,
-		overlay_mode='left-bilateral',
-		noIcons=['Default', 'Translator', 'Chat'],
+		overlay_mode='left',
+		noIcons=['Default', 'Translator', 'Okayu'],
 		dim_kw=dict(
 			marginTop=50.,
 			marginBottom=50.,
 			iconPadding=10.,
-			borderPadding=5.,
+			borderPadding=15.,
 			minIconWidth=150.,
 			maxIconWidth=300.
 		),

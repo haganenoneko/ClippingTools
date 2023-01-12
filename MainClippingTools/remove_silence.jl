@@ -372,7 +372,8 @@ function get_dbs(
     filename:: String, 
     time_lengths:: Vector{Tuple{Float64, Float64}}; 
     rle_estimate_dB:: Float64=nothing,
-    video_dir=VIDEO_PATH
+    video_dir=VIDEO_PATH,
+    quantiles:: Vector{Float64}=[0.05, 0.5, 0.95]
 )::Vector{Vector{Float64}}
 
     filepath = video_dir * filename  
@@ -388,10 +389,10 @@ function get_dbs(
         s, ns = round.(Int, time_lengths[i] .* audio_sr)
         x = AR_to_dB.(signal[s:s+ns])
         
-        dBs[i+1] = quantile(x, [0.25, 0.5, 0.75])
+        dBs[i+1] = quantile(x, quantiles)
     end 
 
-    dBs[1] = quantile(signal, [0.25, 0.5, 0.75])
+    dBs[1] = quantile(signal, quantiles)
 
     if rle_estimate_dB !== nothing 
         _, lens = StatsBase.rle(signal .<= dB_to_AR(rle_estimate_dB))
@@ -400,22 +401,31 @@ function get_dbs(
         intervals = partition(chunks, 2) |> collect 
         mat = reinterpret(reshape, Int, intervals)
         delta_t = (mat[:,2] .- mat[:,1]) ./ audio_sr 
-        @info quantile(delta_t, [0.05, 0.5, 0.95])
+        @info quantile(delta_t, quantiles)
     end 
+    @info "Total, Intervals"
     return dBs 
 end 
 
 # ---------------------------------------------------------------------------- #
 
-filename = "hanabana_minecraft__1KWncbj4NEg"
+filename = "/hoshisorafes__y7Vv9HXOCjQ"
+
+get_dbs(
+    filename, 
+    [
+        (15.05, 1.32), # silent 
+    ];
+    rle_estimate_dB=-25.
+)
 
 remove_silence(
     filename; 
     splice=true, 
-    silence_threshold=dB_to_AR(-44), 
-    silence_duration=0.5,
+    silence_threshold=dB_to_AR(-28), 
+    silence_duration=0.6,
     min_concat_interval=0.25, 
-    interval_padding=0.1,
+    interval_padding=0.2,
     return_intervals=true,
 )[2]
 
