@@ -269,9 +269,9 @@ function plot_silent_segments(
     t_stop = length(signal) / sampling_rate 
     time_x = collect(0 : (1/sampling_rate) : t_stop)[1:end-1]
     
-    if t_stop > 600 
-        time_x ./= 60
-    end 
+    # scaling factor from seconds to minutes if > 10 min
+    𝓈 = (t_stop > 600) ? 1/60 : 1 
+    time_x .*= 𝓈
 
     _, ax = PyPlot.subplots(
         figsize=(6, 3), 
@@ -282,21 +282,20 @@ function plot_silent_segments(
     ax.set_title("Detected segments of silence")
     
     ax.plot(
-        time_x[1:downsample:end], signal[1:downsample:end], 
+        time_x[1:downsample:end], 
+        signal[1:downsample:end], 
         alpha=0.65, lw=0.5, color="blue"
     )
 
     @inbounds for lim in intervals
-        ax.axvline.(lim, color="red", lw=0.7, alpha=0.55)
+        ax.axvline.(lim .* 𝓈, color="red", lw=0.7, alpha=0.55)
     end     
     
     ax.locator_params(axis="both", nbins=5)
     
-    if t_stop > 600 
-        ax.set_xlabel("Time (min)")
-    else 
+    (t_stop > 600) ? 
+        ax.set_xlabel("Time (min)") : 
         ax.set_xlabel("Time (s)")
-    end 
 
     PyPlot.show()
     return nothing 
@@ -306,7 +305,7 @@ end
 #                               Silence detection                              #
 # ---------------------------------------------------------------------------- #
 
-"""
+@doc """
 Detect intervals of silence in an audio sample and return intervals of non-silence.
 
 # Positional Arguments  
@@ -471,14 +470,15 @@ function detect_silence(
     end 
 
     # summary 
-    total = (length(signal)/sampling_rate) - sum(
+    tot = (length(signal)/sampling_rate)
+    total = tot - sum(
         map(
             x -> x[2] - x[1], 
             seg_limits_post
         )
     )
     
-    @info "Total time removed: $(round(total/60, digits=2)) min ($(round(total, digits=2)) sec)"
+    @info "Total time removed: $(round(total/60, digits=2)) min ($(round(total, digits=2)) sec) ($(tot/total)%)"
     @info "Number of streams: $(length(seg_limits_post))"
 
     return Tuple.(seg_limits_post)
@@ -558,7 +558,7 @@ end
 #                        Silence removal (main function)                       #
 # ---------------------------------------------------------------------------- #
 
-"""
+@doc """
 Detect and remove intervals of silence from an audio sample using `ffmpeg`. 
 
 # Arguments 
@@ -638,9 +638,9 @@ svm_kwargs = Dict(
 )
 
 vol_kwargs = Dict(
-    :silence_threshold => 4e-3,
+    :silence_threshold => dB_to_AR(-41),
     :min_segment_duration => 0.25,
-    :min_silence_duration => 0.8,
+    :min_silence_duration => 0.45,
     :savgol_window_size => 181,
     :savgol_poly_order => 2
 )
@@ -657,17 +657,17 @@ vol_kwargs = Dict(
 4. Update kwargs in the `remove_silence` call below. 
 
 # Notes 
-- If using `vol_kwargs`, `vol_kwargs["min_silence_duration"]` takes precedence over the value set above!! 
+- If using `vol_kwargs`, `vol_kwargs["min_silence_duration"]` takes precedence over the value set below!! 
 - For `vol_kwargs`, you can choose a value for `:silence_threshold` using `AR_to_dB` and `dB_to_AR` to convert between decibels and absolute amplitudes
 - As noted in the docstring for the SVM version of `detect_silence`, vocal-heavy tracks work better with **low** values of `smooth_window` and **high** values of `weight`. However, you need to play with the values to get good results.
 """
-filename = "uruha_suD_learn__FXKVePcJReI"
+filename = "rabbit/otaku_voice"
 
 remove_silence(
     filename;
     splice=true,
-    min_silence_duration=0.7,
-    interval_padding=0.25,
+    min_silence_duration=0.35,
+    interval_padding=0.3,
     plot=true,
     vol_kwargs...
 )

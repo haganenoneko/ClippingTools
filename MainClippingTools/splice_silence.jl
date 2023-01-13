@@ -61,7 +61,7 @@ function post_process_intervals(
     @info "No. pruned intervals: $(length(pruned)) ($(length(intervals)-length(pruned)) removed)"
 
     tot = total_seconds - sum(map(x -> x[2]-x[1], pruned))
-    @info "Total time removed: $(round(tot/60, digits=2)) min ($(round(tot, digits=2)) sec)"
+    @info "Total time removed: $(round(tot/60, digits=2)) min ($(round(tot, digits=2)) sec) ($(round(100*tot/total_seconds, digits=1))%)"
 
     return pruned 
 end 
@@ -133,6 +133,7 @@ function splice_video_together(
     cmd = `powershell.exe ffmpeg -hide_banner -i "$filepath.mp4" -filter_complex_script $filterpath $map_fn $output_name`
     
     Base.run(cmd)
+    rm(filterpath, force=true)
 
     if !isfile(output_name)
         error("Output file not found:\n $output_name")
