@@ -13,7 +13,9 @@ function post_process_intervals(
     pad:: Float64=0.1,
 ) where {T<:Number} 
 
-    @assert all([total_seconds, min_silence_duration, pad] .> 0)
+    if any(total_seconds .< [pad, min_silence_duration])
+        throw(ArgumentError("`total_seconds` cannot be less than `pad`ding or `min_silence_duration`"))
+    end 
 
     if pad == 0 && min_silence_duration == 0
         return intervals 

@@ -214,7 +214,7 @@ function plot_silent_segments(
 
     _, axs = PyPlot.subplots(
         nrows=2, ncols=1, 
-        figsize=(6, 3), 
+        figsize=(8, 5), 
         constrained_layout=true
     )
 
@@ -232,9 +232,11 @@ function plot_silent_segments(
     x = collect(0 : st_step : (st_step * size(prob_on_set, 1)))
     axs[2].plot(x[1:downsample:end-1], prob_on_set[1:downsample:end], lw=1, alpha=0.75)
 
-    @inbounds for lim in seg_limits
-        axs[1].axvline.(lim, color="red", lw=0.7, alpha=0.55)
-        axs[2].axvline.(lim, color="red", lw=0.7, alpha=0.55)
+    @inbounds for ax in axs 
+        @inbounds for lim in seg_limits
+            ax.axvline(lim[1], color="red", lw=0.7, alpha=0.5)
+            ax.axvline(lim[2], color="red", lw=0.75, ls="--", alpha=0.5)
+        end 
     end     
     
     for i = 1:2 
@@ -256,7 +258,8 @@ function plot_silent_segments(
     intervals:: Vector{Tuple{Float64, Float64}}, 
     signal:: Vector, 
     sampling_rate:: Number;
-    downsample:: Int=2
+    downsample:: Int=2,
+    segments_style:: String="fill_between"
 ):: Nothing 
     
     try 
@@ -274,7 +277,7 @@ function plot_silent_segments(
     time_x .*= 𝓈
 
     _, ax = PyPlot.subplots(
-        figsize=(6, 3), 
+        figsize=(8, 5), 
         constrained_layout=true
     )
 
@@ -287,10 +290,45 @@ function plot_silent_segments(
         alpha=0.65, lw=0.5, color="blue"
     )
 
-    @inbounds for lim in intervals
-        ax.axvline.(lim .* 𝓈, color="red", lw=0.7, alpha=0.55)
-    end     
-    
+    if segments_style == "fill_between"
+        
+        ylim = ax.get_ylim()
+        for lim in partition(Iters2Vec(intervals)[2:end] .* 𝓈, 2) 
+            xs = fill.(lim, 2)
+            ax.fill_betweenx(
+                ylim, 
+                xs[1], 
+                xs[2],
+                alpha=0.35,
+                color="red",
+                linewidth=0,
+                label="Silence"
+            )            
+        end 
+        legend_inds = [1]
+    else 
+        for i = 1:2 
+            xs = [lim[i] for lim in intervals] .* 𝓈
+            ax.axvline.(
+                xs, 
+                lw=(i>1) ? 0.75 : 1.2, 
+                alpha=(i>1) ? 0.55 : 0.7,
+                color=(i>1) ? "lightblue" : "red", 
+                label=(i>1) ? "End" : "Start"
+            )
+        end
+        legend_inds = [1, length(intervals) + 1]
+    end
+    handles, labels = ax.get_legend_handles_labels()    
+    ax.legend(
+        handles=handles[legend_inds], 
+        labels=labels[legend_inds],
+        loc="lower right", 
+        bbox_to_anchor=[0.98, 0.02],
+        fancybox=false,
+    )
+
+
     ax.locator_params(axis="both", nbins=5)
     
     (t_stop > 600) ? 
@@ -339,7 +377,7 @@ This is a Julia implementation of `silence_removal` from `pyAudioAnalysis.audioS
 1. [Original code from `pyAudioAnalysis.audioSegementation`](https://github.com/tyiannak/pyAudioAnalysis/blob/master/py@AudioAnalysis/audioSegmentation.py)
 2. [Documentation of `pyAudioAnalysis`](https://github.com/tyiannak/pyAudioAnalysis/wiki/5.-Segmentation)
 """
-function detect_silence(
+function detect_silence_by_svm(
     signal:: Vector,
     sampling_rate:: Number;
     st_win:: Float64=0.02,
@@ -487,7 +525,7 @@ end
 """
 Detection algorithm purely based on audio volume. 
 """
-function detect_silence(
+function detect_silence_by_volume(
     signal:: Vector,
     sampling_rate:: Number;
     silence_threshold:: Float64=0.01,
@@ -501,11 +539,13 @@ function detect_silence(
     # lens[i] = length of i-th run with i-th value (_[i])
     # we ignore the values here because they are all boolean (0 or 1)
     _, lens = (
-        savgol_filter(
-            abs.(signal), 
-            savgol_window_size,
-            savgol_poly_order
-        ) .<= silence_threshold
+        savgol_window_size > 0 ? 
+            savgol_filter(
+                abs.(signal), 
+                savgol_window_size,
+                savgol_poly_order
+            ) .<= silence_threshold :
+            abs.(signal) .<= silence_threshold
     ) |> StatsBase.rle 
     
     # flatten lens 
@@ -554,11 +594,28 @@ function detect_silence(
     return intervals[mask]
 end
 
+"""Select silence detection algorithm"""
+function detect_silence(
+    method:: String,
+    signal:: Vector,
+    sampling_rate:: Number; kwargs...):: Vector{Tuple{Float64, Float64}}
+    
+    method = uppercase(method)
+
+    if method == "SVM"
+        return detect_silence_by_svm(signal, sampling_rate; kwargs...)
+    elseif method == "VOLUME"
+        return detect_silence_by_volume(signal, sampling_rate; kwargs...)
+    else 
+        throw(ArgumentError("`method` must be SVM or VOLUME. Passed `method`."))
+    end 
+end 
+
 # ---------------------------------------------------------------------------- #
 #                        Silence removal (main function)                       #
 # ---------------------------------------------------------------------------- #
 
-@doc """
+"""
 Detect and remove intervals of silence from an audio sample using `ffmpeg`. 
 
 # Arguments 
@@ -592,11 +649,17 @@ function remove_silence(
     signal, sampling_rate = open_video(filepath)
     signal = stereo_to_mono(signal)
     
+    method:: String = haskey(
+            detection_kwargs, 
+            :smooth_window
+        ) ? "SVM" : "VOLUME"
+
+    @info "Using < $method > method for silence detection."
+
     intervals:: Vector{Tuple{Float64, Float64}} = 
         detect_silence(
-            signal, 
-            sampling_rate; 
-            plot=plot,
+            method,
+            signal, sampling_rate; 
             detection_kwargs...
         )
     
@@ -638,14 +701,25 @@ svm_kwargs = Dict(
 )
 
 vol_kwargs = Dict(
-    :silence_threshold => dB_to_AR(-41),
+    :silence_threshold => dB_to_AR(-35),
     :min_segment_duration => 0.25,
-    :min_silence_duration => 0.45,
-    :savgol_window_size => 181,
-    :savgol_poly_order => 2
+    :min_silence_duration => 0.25,
+    :savgol_window_size => 81,
+    :savgol_poly_order => 3
 )
 
 # ----------------------------- Run the function! ---------------------------- #
+filename = "2022_top22/kawase_nazuna_jul1"
+
+remove_silence(
+    filename;
+    splice=true,
+    min_silence_duration=0.2,
+    interval_padding=0.2,
+    plot=true,
+    vol_kwargs...
+)
+
 """
 # HOW TO USE 
 
@@ -661,13 +735,3 @@ vol_kwargs = Dict(
 - For `vol_kwargs`, you can choose a value for `:silence_threshold` using `AR_to_dB` and `dB_to_AR` to convert between decibels and absolute amplitudes
 - As noted in the docstring for the SVM version of `detect_silence`, vocal-heavy tracks work better with **low** values of `smooth_window` and **high** values of `weight`. However, you need to play with the values to get good results.
 """
-filename = "rabbit/otaku_voice"
-
-remove_silence(
-    filename;
-    splice=true,
-    min_silence_duration=0.35,
-    interval_padding=0.3,
-    plot=true,
-    vol_kwargs...
-)

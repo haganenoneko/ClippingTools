@@ -1,6 +1,7 @@
 """
 Resize pictures of VTubers and overlay them on a video at specific times.
 """
+import re 
 import numpy as np
 from subprocess import Popen
 import tkinter as tk
@@ -42,9 +43,18 @@ class DropdownFileSelector:
 		self.root.geometry(geom)
 		self.root.resizable(True, True)
 		self.root.title(title)
+		
+		self.sb = tk.Scrollbar(self.root, orient='vertical')
+		self.sb.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
+		self.canvas = tk.Canvas(self.root, bd=0, yscrollcommand=self.sb.set)
+		self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		self.sb.config(command=self.canvas.yview)
+
+		self.canvas.xview_moveto(0)
+		self.canvas.yview_moveto(0)
 
 	def createFrame(self) -> tk.Frame:
-		frame = tk.Frame(self.root)
+		frame = tk.Frame(self.canvas)
 		frame.pack(padx=10, pady=10, **self.box_kw)
 		self.boxes.append(frame)
 		return frame
@@ -126,39 +136,39 @@ class ImageOverlay:
 		self.stylesWithIcons: list[str] = None
 
 	def get_stylesWithIcons(
-			self, 
-			df: pd.DataFrame, 
+			self,
+			df: pd.DataFrame,
 			noIcons: list[str],
-			icon_order: dict[str, int]=None) -> list[str]:
+			icon_order: dict[str, int] = None) -> list[str]:
 		"""Find styles in the ASS file that have icons
 
 		Args:
-				df (pd.DataFrame): dataframe of ASS dialog
-				noIcons (list[str]): style names that do not have icons
+						df (pd.DataFrame): dataframe of ASS dialog
+						noIcons (list[str]): style names that do not have icons
 
 		Returns:
-			list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
+				list[str]: style names that have icons. Paths to all icons, both in and not in the ASS file, are values of corresponding keys in `self.icon_paths`
 		"""
 
 		icon_names: list[str] = [s.title() for s in self.icon_paths.keys()]
-		
-		# since we create `stylesWithIcons` by iterating over `style_names`, 
-		# we need to sort `style_names` so that, if the same (sub)sets of 
-		# styles are used in multiple `.ass` files, the corresponding 
-		# icons are placed in the same positions (alphabetical), rather 
-		# than the order in which they first appear in each `.ass` file 
+
+		# since we create `stylesWithIcons` by iterating over `style_names`,
+		# we need to sort `style_names` so that, if the same (sub)sets of
+		# styles are used in multiple `.ass` files, the corresponding
+		# icons are placed in the same positions (alphabetical), rather
+		# than the order in which they first appear in each `.ass` file
 		style_names = np.array([s.title() for s in df.Style.unique()])
 
-		# `icon_order` provides option to manually specify relative 
-		# icon positions ('order'), but the default is alphabetical, 
-		# based on their corresponding style names 
+		# `icon_order` provides option to manually specify relative
+		# icon positions ('order'), but the default is alphabetical,
+		# based on their corresponding style names
 		style_names.sort()
 
 		if icon_order:
 			raise NotImplementedError("Manual icon order not supported yet.")
 			style_names = np.array(
 				sorted(
-					style_names, 
+					style_names,
 					key=lambda s: icon_order[s]
 				)
 			)
@@ -245,6 +255,17 @@ class ImageOverlay:
 			w: float,
 			mode: str) -> tuple[float, dict[str, tuple]]:
 
+		stylesWithIcons = self.stylesWithIcons[:]
+		if num_icons > len(stylesWithIcons):
+			num = num_icons - len(stylesWithIcons)
+			self.stylesWithIcons.extend(
+				[stylesWithIcons[-1]]*num
+			)
+			stylesWithIcons.extend([
+				f"{stylesWithIcons[-1]}_Copy_{i+1}"
+				for i in range(num)
+			])
+		
 		# number of icons to place on the first side
 		if 'bilateral' in mode:
 			n1 = round(num_icons/2, ndigits=0)
@@ -258,14 +279,14 @@ class ImageOverlay:
 		) - self.iconPadding
 
 		if y_icon < self.minIconWidth:
-			print(
+			raise ValueError(
 				f"Too many icons ({num_icons}) to fit in effective height {h_eff} using mode <{mode}>"
 			)
 		elif y_icon > self.maxIconWidth:
 			y_icon = self.maxIconWidth - self.iconPadding
 
 		xy_dict: dict[str, tuple[float, float]] = {}
-		for i, name in enumerate(self.stylesWithIcons):
+		for i, name in enumerate(stylesWithIcons):
 
 			y = self.marginTop +\
 				self.iconPadding/2
@@ -324,7 +345,10 @@ class ImageOverlay:
 
 		icon_xy: dict[str, tuple[float, float]] = {}
 		y_icon, icon_xy = self.get_icon_coords(
-			num_icons, height_eff, width, mode
+			max(num_icons, df.PositionIndex.max()),
+			height_eff,
+			width,
+			mode
 		)
 
 		return dict(y_icon=y_icon, icon_xy=icon_xy, mode=mode)
@@ -365,13 +389,17 @@ class ImageOverlay:
 		scales_splits = []
 
 		# number of times the icon appears throughout the video
-		num_styles: dict[str, int] = {}
+		num_styles = df['Style'].value_counts()
+		num_styles.index = num_styles.index.to_series().str.title()
+		num_styles = num_styles.loc[num_styles > 0].to_dict()
 
 		for i, style in enumerate(self.stylesWithIcons):
-			num = (df['Style'] == style).sum()
-			num_styles[style] = num
 			scales_splits.append(
-				self.scale_split(i+1, y_icon, num,)
+					self.scale_split(
+					i+1, 
+					y_icon, 
+					num_styles[style],
+				)
 			)
 
 		# i = counter for filter elements
@@ -379,6 +407,9 @@ class ImageOverlay:
 
 		df_hasIcon = df.loc[df['hasIcon'] > 0, :]
 		coords = list(icon_xy.values())
+
+		if len(coords) < df_hasIcon.PositionIndex.max():
+			raise IndexError(coords)
 
 		OVRL = "overlay={x}:{y}:enable='between(t,{tA},{tB})'"
 		overlays: list[str] = []
@@ -392,8 +423,8 @@ class ImageOverlay:
 				n_clone = 1
 			else:
 				n_clone = (
-					df_hasIcon.iloc[:j, :]['Style']
-					== row.Style
+					df_hasIcon.iloc[:j, :]['Style'].str.title()
+					== row.Style.title()
 				).sum() + 1
 
 			# icon coordinates
@@ -401,7 +432,7 @@ class ImageOverlay:
 
 			src1 = "[0:v]" if j == 0 else f"[{i}ov]"
 
-			if num_styles[row.Style] > 0:
+			if num_styles[row.Style.title()] > 0:
 				src2 = f"[{row.StyleInd+1}png_{n_clone}]"
 			else:
 				src2 = f"[{row.StyleInd+1}png]"
@@ -449,6 +480,7 @@ class ImageOverlay:
 
 	def build_inputs(self, vp: Path) -> str:
 		cmd = f" -i \"{vp}\""
+
 		for style in self.stylesWithIcons:
 			cmd += f" -i \"{self.icon_paths[style]}\" "
 
@@ -467,18 +499,24 @@ class ImageOverlay:
 
 		if 'speaker' in mode:
 			filt, lastMap = self.speaker_filter_elements(
-				df, y_icon, icon_xy)
+				df,
+				y_icon,
+				icon_xy
+			)
 		else:
 			filt, lastMap = self.nonSpeaker_filter_elements(
-				y_icon, icon_xy)
+				y_icon,
+				icon_xy
+			)
 
 		outpath = vp.parent /\
 			f"{vp.stem}_overlay{vp.suffix}"
 
 		tmpfile = Path("./logs/tmp_overlay_params.txt")
+		
 		with open(tmpfile, 'w') as tmp:
 			tmp.write(filt)
-		print(f"Filter written to: {tmpfile}")
+			print(f"Filter written to: {tmpfile}")
 
 		if check_overwrite(outpath):
 			out = f"{lastMap} -map 0:a -c:a copy \"{outpath}\""
@@ -500,13 +538,13 @@ class ImageOverlay:
 		"""Get coordinates for subtitles
 
 		Args:
-			df_xy (pd.DataFrame): `DataFrame` with columns for `x` and `y` coordinates
-			y_icon (float): height (and width) of icons
-			hasIcon (np.ndarray): Boolean mask of rows in `df_xy` with icons, i.e. `df_xy['x'] == 0`
-			onRight (list[bool], optional): Boolean mask of rows in `df_xy` that are located on the right. Defaults to None.
+				df_xy (pd.DataFrame): `DataFrame` with columns for `x` and `y` coordinates
+				y_icon (float): height (and width) of icons
+				hasIcon (np.ndarray): Boolean mask of rows in `df_xy` with icons, i.e. `df_xy['x'] == 0`
+				onRight (list[bool], optional): Boolean mask of rows in `df_xy` that are located on the right. Defaults to None.
 
 		Returns:
-			np.ndarray: `N x 2` array of subtitle positions 
+				np.ndarray: `N x 2` array of subtitle positions 
 		"""
 
 		coords = np.zeros((df_xy.shape[0], 2))
@@ -561,11 +599,11 @@ class ImageOverlay:
 
 	@staticmethod
 	def _get_xy_coordinates(
-		df2: pd.DataFrame,
-		mode: str,
-		posInfo: dict[str, Any],
-		hasIcon: pd.Series) -> pd.DataFrame:
-		
+			df2: pd.DataFrame,
+			mode: str,
+			posInfo: dict[str, Any],
+			hasIcon: pd.Series) -> pd.DataFrame:
+
 		if 'speaker' in mode:
 			# x, y coordinates for each subtitle
 			xy: list[tuple[float, float]] = list(
@@ -578,20 +616,20 @@ class ImageOverlay:
 		else:
 			xy: dict[str, tuple] = posInfo['icon_xy']
 			df_xy = df2['Style'].apply(
-				lambda k: xy[k] 
-				if k in xy 
+				lambda k: xy[k]
+				if k in xy
 				else (0, 0)
 			)
 
-		# epxand dataframe with 2-tuples as values into 
-		# N x 2 dataframe with separate x, y columns 
+		# epxand dataframe with 2-tuples as values into
+		# N x 2 dataframe with separate x, y columns
 		df_xy = df_xy.apply(lambda x: pd.Series(x))
 		df_xy.columns = ['x', 'y']
 
 		# zero all positions for subtitles without icons
 		df_xy.loc[~hasIcon, :] = (0, 0)
 
-		return df_xy 
+		return df_xy
 
 	def adjust_ASS_subtitle_positions(
 			self,
@@ -606,17 +644,17 @@ class ImageOverlay:
 		df_xy = self._get_xy_coordinates(
 			df2, mode, posInfo, hasIcon
 		)
-		
-		# find subtitles that are located on the right 
+
+		# find subtitles that are located on the right
 		if (df_xy['x'] > self.borderPadding).any():
 			onRight = df_xy['x'] > self.borderPadding
 		else:
 			onRight = None
 
 		coords = self.get_subtitle_coordinates(
-			df_xy, 
-			posInfo['y_icon'], 
-			hasIcon.values, 
+			df_xy,
+			posInfo['y_icon'],
+			hasIcon.values,
 			onRight=onRight
 		)
 
@@ -636,7 +674,7 @@ class ImageOverlay:
 
 		margin_size = int(
 			self.borderPadding +
-			posInfo['y_icon'] + 
+			posInfo['y_icon'] +
 			self.iconPadding
 		)
 
@@ -748,7 +786,7 @@ def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
 	icons: dict[str, list[str]] = {
 		name.title(): list(
 			icondir.glob(f"*{name.lower()}*.png")
-		) for name in names
+		) for name in names[:10]
 	}
 
 	icons = DropdownFileSelector(icons).get()
@@ -756,19 +794,19 @@ def get_icon_paths(names=VSPO_NAMES, icondir=ICONS_DIR) -> dict[str, Path]:
 
 
 def main(
-	names=VSPO_NAMES, 
-	icondir=ICONS_DIR,
-	noIcons: list[str] = ['Translator'],
-	dim_kw: dict[str, float] = dict(
-		marginTop=110.,
-		marginBottom=145.,
-		iconPadding=10.,
-		borderPadding=10.,
-		minIconWidth=100.,
-		maxIconWidth=230.
-	),
-	overlay_mode='left',
-	**kwargs
+		names=VSPO_NAMES,
+		icondir=ICONS_DIR,
+		noIcons: list[str] = ['Translator'],
+		dim_kw: dict[str, float] = dict(
+			marginTop=110.,
+			marginBottom=145.,
+			iconPadding=10.,
+			borderPadding=10.,
+			minIconWidth=100.,
+			maxIconWidth=230.
+		),
+		overlay_mode='left',
+		**kwargs
 ) -> None:
 
 	icon_paths = get_icon_paths(names, icondir)
@@ -808,13 +846,13 @@ def main(
 if __name__ == '__main__':
 	main(
 		icondir=ICONS_DIR,
-		overlay_mode='left',
-		noIcons=['Default', 'Translator', 'Okayu'],
+		overlay_mode='speaker-bilateral',
+		noIcons=['Default', 'Translator', 'Nazuna', 'Chat'],
 		dim_kw=dict(
 			marginTop=50.,
 			marginBottom=50.,
-			iconPadding=10.,
-			borderPadding=15.,
+			iconPadding=40.,
+			borderPadding=20.,
 			minIconWidth=150.,
 			maxIconWidth=300.
 		),

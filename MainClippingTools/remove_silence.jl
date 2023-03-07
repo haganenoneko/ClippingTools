@@ -409,7 +409,7 @@ end
 
 # ---------------------------------------------------------------------------- #
 
-filename = "/hoshisorafes__y7Vv9HXOCjQ"
+filename = "/rabbit/mimi_bday_2023_1"
 
 get_dbs(
     filename, 
@@ -421,8 +421,8 @@ get_dbs(
 
 remove_silence(
     filename; 
-    splice=true, 
-    silence_threshold=dB_to_AR(-28), 
+    splice=false, 
+    silence_threshold=dB_to_AR(-30), 
     silence_duration=0.6,
     min_concat_interval=0.25, 
     interval_padding=0.2,

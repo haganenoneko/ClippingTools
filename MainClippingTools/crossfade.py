@@ -183,7 +183,7 @@ def main(manual_order=True, **kwargs):
 if __name__ == '__main__':
     main(
         manual_order=False, 
-        xdur=0.74, 
+        xdur=0.8, 
         vfadetypes=random_vfade(17),
         afadetypes="dese"
     )
