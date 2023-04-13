@@ -537,8 +537,7 @@ function detect_silence_by_volume(
 ):: Vector{Tuple{Float64, Float64}}
     
     # lens[i] = length of i-th run with i-th value (_[i])
-    # we ignore the values here because they are all boolean (0 or 1)
-    _, lens = (
+    vol, lens = (
         savgol_window_size > 0 ? 
             savgol_filter(
                 abs.(signal), 
@@ -547,14 +546,14 @@ function detect_silence_by_volume(
             ) .<= silence_threshold :
             abs.(signal) .<= silence_threshold
     ) |> StatsBase.rle 
-    
+
     # flatten lens 
     flat = ((0,), cumsum(lens)) |> Iterators.flatten 
 
     # get tuples of (start, end) times for intervals 
     chunks:: Vector{Int64} = [
-        (a+1, b) for (a,b) in partition(flat, 2, 1)
-        if (b-a) >= min_silence_duration*sampling_rate
+        (a+1, b) for (a, b) in partition(flat, 2, 1)
+        if (b-a) >= min_silence_duration*sampling_rate 
     ] |> Iters2Vec
 
     # ensure that `chunks`` contains first and last indices 
@@ -701,24 +700,14 @@ svm_kwargs = Dict(
 )
 
 vol_kwargs = Dict(
-    :silence_threshold => dB_to_AR(-35),
-    :min_segment_duration => 0.25,
+    :silence_threshold => dB_to_AR(-45),
+    :min_segment_duration => 1.,
     :min_silence_duration => 0.25,
-    :savgol_window_size => 81,
+    :savgol_window_size => 21,
     :savgol_poly_order => 3
 )
 
 # ----------------------------- Run the function! ---------------------------- #
-filename = "2022_top22/kawase_nazuna_jul1"
-
-remove_silence(
-    filename;
-    splice=true,
-    min_silence_duration=0.2,
-    interval_padding=0.2,
-    plot=true,
-    vol_kwargs...
-)
 
 """
 # HOW TO USE 
@@ -735,3 +724,13 @@ remove_silence(
 - For `vol_kwargs`, you can choose a value for `:silence_threshold` using `AR_to_dB` and `dB_to_AR` to convert between decibels and absolute amplitudes
 - As noted in the docstring for the SVM version of `detect_silence`, vocal-heavy tracks work better with **low** values of `smooth_window` and **high** values of `weight`. However, you need to play with the values to get good results.
 """
+filename = "2022_top22/kamito_voice_aug_26"
+
+remove_silence(
+    filename;
+    splice=false,
+    min_silence_duration=0.5,
+    interval_padding=0.1,
+    plot=true,
+    vol_kwargs...
+)

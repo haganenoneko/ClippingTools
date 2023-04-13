@@ -847,14 +847,14 @@ if __name__ == '__main__':
 	main(
 		icondir=ICONS_DIR,
 		overlay_mode='speaker-bilateral',
-		noIcons=['Default', 'Translator', 'Nazuna', 'Chat'],
+		noIcons=['Default', 'Translator', 'Hinano'],
 		dim_kw=dict(
 			marginTop=50.,
 			marginBottom=50.,
-			iconPadding=40.,
+			iconPadding=30.,
 			borderPadding=20.,
-			minIconWidth=150.,
-			maxIconWidth=300.
+			minIconWidth=120.,
+			maxIconWidth=200.
 		),
 		run_overlay=True,
 		write_ass=True,
