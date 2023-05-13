@@ -430,7 +430,7 @@ class ASSReader:
 			for col in ['Start', 'End']:
 				df[col] = pd.to_timedelta(df[col]).\
 					apply(lambda x: x.total_seconds())
-		return df
+		return df.drop_duplicates()
 
 	def parse_styles(self, styles: list[str]) -> pd.DataFrame:
 		# Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding

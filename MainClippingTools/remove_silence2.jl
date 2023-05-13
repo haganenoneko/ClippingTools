@@ -724,13 +724,16 @@ vol_kwargs = Dict(
 - For `vol_kwargs`, you can choose a value for `:silence_threshold` using `AR_to_dB` and `dB_to_AR` to convert between decibels and absolute amplitudes
 - As noted in the docstring for the SVM version of `detect_silence`, vocal-heavy tracks work better with **low** values of `smooth_window` and **high** values of `weight`. However, you need to play with the values to get good results.
 """
-filename = "2022_top22/kamito_voice_aug_26"
+filename = "ichinoseuruha_king"
 
 remove_silence(
     filename;
     splice=false,
-    min_silence_duration=0.5,
-    interval_padding=0.1,
     plot=true,
-    vol_kwargs...
+    silence_threshold = dB_to_AR(-40),
+    min_silence_duration=0.4,
+    min_segment_duration = 0.8,
+    interval_padding=0.1,
+    savgol_window_size = 51,
+    savgol_poly_order = 3
 )

@@ -846,15 +846,15 @@ def main(
 if __name__ == '__main__':
 	main(
 		icondir=ICONS_DIR,
-		overlay_mode='speaker-bilateral',
-		noIcons=['Default', 'Translator', 'Hinano'],
+		overlay_mode='speaker-left',
+		noIcons=['Default', 'Translator', 'All', 'All - En', 'Typewriter', 'Nazuna', 'Mimi'],
 		dim_kw=dict(
-			marginTop=50.,
+			marginTop=30.,
 			marginBottom=50.,
-			iconPadding=30.,
-			borderPadding=20.,
-			minIconWidth=120.,
-			maxIconWidth=200.
+			iconPadding=15.,
+			borderPadding=15.,
+			minIconWidth=150.,
+			maxIconWidth=300.
 		),
 		run_overlay=True,
 		write_ass=True,
